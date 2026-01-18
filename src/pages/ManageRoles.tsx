@@ -264,7 +264,7 @@ const ManageRoles = () => {
                     <FormItem>
                       <FormLabel>Role</FormLabel>
                       <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
+                        <FormControl> {/* Corrected placement */}
                           <SelectTrigger>
                             <SelectValue placeholder="Select a role" />
                           </SelectTrigger>

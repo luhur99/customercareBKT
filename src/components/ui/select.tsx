@@ -22,9 +22,7 @@ const SelectTrigger = React.forwardRef<
     )}
     {...props}
   >
-    {/* Menggunakan SelectPrimitive.Value dengan asChild untuk merender children */}
-    <SelectPrimitive.Value asChild>{children}</SelectPrimitive.Value>
-    {/* Menggunakan SelectPrimitive.Icon dengan asChild untuk ikon */}
+    {children}
     <SelectPrimitive.Icon asChild>
       <ChevronDown className="h-4 w-4 opacity-50" />
     </SelectPrimitive.Icon>

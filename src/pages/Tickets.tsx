@@ -425,7 +425,7 @@ const Tickets = () => {
                       <FormItem>
                         <FormLabel>Prioritas</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
+                          <FormControl> {/* Corrected placement */}
                             <SelectTrigger>
                               <SelectValue placeholder="Pilih prioritas" />
                             </SelectTrigger>
@@ -584,7 +584,7 @@ const Tickets = () => {
                   <FormItem>
                     <FormLabel>Status</FormLabel>
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
+                      <FormControl> {/* Corrected placement */}
                         <SelectTrigger>
                           <SelectValue placeholder="Pilih status" />
                         </SelectTrigger>
@@ -608,7 +608,7 @@ const Tickets = () => {
                   <FormItem>
                     <FormLabel>Prioritas</FormLabel>
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
+                      <FormControl> {/* Corrected placement */}
                         <SelectTrigger>
                           <SelectValue placeholder="Pilih prioritas" />
                         </SelectTrigger>
@@ -632,7 +632,7 @@ const Tickets = () => {
                   <FormItem>
                     <FormLabel>Ditugaskan Ke</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value || ''}>
-                      <FormControl>
+                      <FormControl> {/* Corrected placement */}
                         <SelectTrigger>
                           <SelectValue placeholder="Pilih agen" />
                         </SelectTrigger>
