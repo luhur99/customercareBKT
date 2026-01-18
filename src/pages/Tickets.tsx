@@ -72,7 +72,7 @@ interface Ticket {
   priority: TicketPriority;
   created_by: string | null;
   assigned_to: string | null;
-  customer_email: string | null;
+  customer_whatsapp: string | null; // Changed from customer_email to customer_whatsapp
   customer_name: string | null;
   // Joined data for display
   created_by_user?: { email: string | null; first_name: string | null; last_name: string | null };
@@ -85,7 +85,7 @@ const createTicketFormSchema = z.object({
   description: z.string().optional(),
   status: z.enum(TICKET_STATUSES, { message: 'Please select a valid status.' }).default('open'),
   priority: z.enum(TICKET_PRIORITIES, { message: 'Please select a valid priority.' }).default('medium'),
-  customer_email: z.string().email({ message: 'Invalid email address.' }).optional().or(z.literal('')),
+  customer_whatsapp: z.string().optional(), // Changed from customer_email to customer_whatsapp
   customer_name: z.string().optional(),
 });
 
@@ -96,7 +96,7 @@ const editTicketFormSchema = z.object({
   status: z.enum(TICKET_STATUSES, { message: 'Please select a valid status.' }),
   priority: z.enum(TICKET_PRIORITIES, { message: 'Please select a valid priority.' }),
   assigned_to: z.string().nullable().optional(), // UUID of the assigned user
-  customer_email: z.string().email({ message: 'Invalid email address.' }).optional().or(z.literal('')),
+  customer_whatsapp: z.string().optional(), // Changed from customer_email to customer_whatsapp
   customer_name: z.string().optional(),
 });
 
@@ -158,7 +158,8 @@ const Tickets = () => {
         query = query.eq('priority', priorityFilter);
       }
       if (searchTerm) {
-        query = query.or(`title.ilike.%${searchTerm}%,customer_name.ilike.%${searchTerm}%`);
+        // Search by title, customer name, or customer whatsapp
+        query = query.or(`title.ilike.%${searchTerm}%,customer_name.ilike.%${searchTerm}%,customer_whatsapp.ilike.%${searchTerm}%`);
       }
 
       query = query.order('created_at', { ascending: false });
@@ -183,6 +184,7 @@ const Tickets = () => {
         .insert({
           ...newTicketData,
           created_by: user.id,
+          customer_email: newTicketData.customer_whatsapp, // Store WhatsApp in customer_email column
         })
         .select()
         .single();
@@ -208,7 +210,10 @@ const Tickets = () => {
 
       const { data, error } = await supabase
         .from('tickets')
-        .update(updatedTicketData)
+        .update({
+          ...updatedTicketData,
+          customer_email: updatedTicketData.customer_whatsapp, // Store WhatsApp in customer_email column
+        })
         .eq('id', selectedTicket.id)
         .select()
         .single();
@@ -235,7 +240,7 @@ const Tickets = () => {
       description: '',
       status: 'open',
       priority: 'medium',
-      customer_email: '',
+      customer_whatsapp: '', // Changed from customer_email
       customer_name: '',
     },
   });
@@ -257,7 +262,7 @@ const Tickets = () => {
         status: selectedTicket.status,
         priority: selectedTicket.priority,
         assigned_to: selectedTicket.assigned_to || '',
-        customer_email: selectedTicket.customer_email || '',
+        customer_whatsapp: selectedTicket.customer_whatsapp || '', // Changed from customer_email
         customer_name: selectedTicket.customer_name || '',
       });
     }
@@ -308,7 +313,7 @@ const Tickets = () => {
         <div className="relative w-full sm:w-1/3">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Cari judul atau nama pelanggan..."
+            placeholder="Cari judul, nama pelanggan, atau No WA..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-9"
@@ -402,12 +407,12 @@ const Tickets = () => {
                   />
                   <FormField
                     control={createTicketForm.control}
-                    name="customer_email"
+                    name="customer_whatsapp" // Changed from customer_email
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Email Pelanggan (Opsional)</FormLabel>
+                        <FormLabel>No WA Pelanggan (Opsional)</FormLabel> {/* Changed label */}
                         <FormControl>
-                          <Input type="email" placeholder="pelanggan@contoh.com" {...field} />
+                          <Input type="text" placeholder="Contoh: 081234567890" {...field} /> {/* Changed type and placeholder */}
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -464,6 +469,7 @@ const Tickets = () => {
                 <TableHead>Status</TableHead>
                 <TableHead>Prioritas</TableHead>
                 <TableHead>Pelanggan</TableHead>
+                <TableHead>No WA Pelanggan</TableHead> {/* Changed header */}
                 <TableHead>Dibuat Oleh</TableHead>
                 <TableHead>Ditugaskan Ke</TableHead>
                 <TableHead>Dibuat Pada</TableHead>
@@ -473,7 +479,7 @@ const Tickets = () => {
             <TableBody>
               {tickets?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={canManageTickets ? 8 : 7} className="text-center">Tidak ada tiket ditemukan.</TableCell>
+                  <TableCell colSpan={canManageTickets ? 9 : 8} className="text-center">Tidak ada tiket ditemukan.</TableCell> {/* Adjusted colspan */}
                 </TableRow>
               ) : (
                 tickets?.map((ticket) => (
@@ -481,7 +487,8 @@ const Tickets = () => {
                     <TableCell className="font-medium">{ticket.title}</TableCell>
                     <TableCell className="capitalize">{ticket.status.replace('_', ' ')}</TableCell>
                     <TableCell className="capitalize">{ticket.priority}</TableCell>
-                    <TableCell>{ticket.customer_name || ticket.customer_email || '-'}</TableCell>
+                    <TableCell>{ticket.customer_name || '-'}</TableCell>
+                    <TableCell>{ticket.customer_whatsapp || '-'}</TableCell> {/* Changed to customer_whatsapp */}
                     <TableCell>{ticket.created_by_user?.first_name || ticket.created_by_user?.email || '-'}</TableCell>
                     <TableCell>{ticket.assigned_to_user?.first_name || ticket.assigned_to_user?.email || '-'}</TableCell>
                     <TableCell>{new Date(ticket.created_at).toLocaleDateString()}</TableCell>
@@ -559,12 +566,12 @@ const Tickets = () => {
               />
               <FormField
                 control={editTicketForm.control}
-                name="customer_email"
+                name="customer_whatsapp" // Changed from customer_email
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Email Pelanggan (Opsional)</FormLabel>
+                    <FormLabel>No WA Pelanggan (Opsional)</FormLabel> {/* Changed label */}
                     <FormControl>
-                      <Input type="email" {...field} />
+                      <Input type="text" {...field} /> {/* Changed type */}
                     </FormControl>
                     <FormMessage />
                   </FormItem>
