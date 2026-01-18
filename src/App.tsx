@@ -3,10 +3,13 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Index from "./pages/Index";
+import Index from "./pages/Index"; // Renamed to Welcome for now
 import NotFound from "./pages/NotFound";
-import Login from "./pages/Login"; // Import the new Login page
-import { SessionContextProvider } from "./components/SessionContextProvider"; // Import the new SessionContextProvider
+import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard"; // Import the new Dashboard page
+import { SessionContextProvider } from "./components/SessionContextProvider";
+import Layout from "./components/Layout"; // Import the new Layout component
+import ManageRoles from "./pages/ManageRoles"; // Import ManageRoles
 
 const queryClient = new QueryClient();
 
@@ -16,13 +19,17 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <SessionContextProvider> {/* Wrap the routes with SessionContextProvider */}
-          <Routes>
-            <Route path="/login" element={<Login />} /> {/* Add the login route */}
-            <Route path="/" element={<Index />} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+        <SessionContextProvider>
+          <Layout> {/* Wrap all routes with the Layout component */}
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/welcome" element={<Index />} /> {/* Index page moved to /welcome */}
+              <Route path="/manage-roles" element={<ManageRoles />} /> {/* Manage Roles page */}
+              <Route path="/" element={<Dashboard />} /> {/* Set Dashboard as the default route */}
+              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Layout>
         </SessionContextProvider>
       </BrowserRouter>
     </TooltipProvider>
