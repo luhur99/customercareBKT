@@ -24,6 +24,9 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             {session ? (
               <>
                 <Link to="/" className="hover:underline">Dashboard</Link>
+                {(role === 'admin' || role === 'customer_service') && (
+                  <Link to="/tickets" className="hover:underline">Tickets</Link>
+                )}
                 {role === 'admin' && (
                   <Link to="/manage-roles" className="hover:underline">Manage Roles</Link>
                 )}
