@@ -322,9 +322,10 @@ const Tickets = () => {
 
         {/* Status Filter */}
         <Select value={statusFilter} onValueChange={(value: TicketStatus | 'all') => setStatusFilter(value)}>
-          {/* SelectTrigger dan SelectContent adalah anak langsung dari Select */}
           <SelectTrigger className="w-full sm:w-[180px]">
-            <SelectValue placeholder="Filter Status" />
+            <React.Fragment>
+              <SelectValue placeholder="Filter Status" />
+            </React.Fragment>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Semua Status</SelectItem>
@@ -339,7 +340,9 @@ const Tickets = () => {
         {/* Priority Filter */}
         <Select value={priorityFilter} onValueChange={(value: TicketPriority | 'all') => setPriorityFilter(value)}>
           <SelectTrigger className="w-full sm:w-[180px]">
-            <SelectValue placeholder="Filter Prioritas" />
+            <React.Fragment>
+              <SelectValue placeholder="Filter Prioritas" />
+            </React.Fragment>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Semua Prioritas</SelectItem>
@@ -428,7 +431,9 @@ const Tickets = () => {
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="Pilih prioritas" />
+                              <React.Fragment>
+                                <SelectValue placeholder="Pilih prioritas" />
+                              </React.Fragment>
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
@@ -587,7 +592,9 @@ const Tickets = () => {
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Pilih status" />
+                          <React.Fragment>
+                            <SelectValue placeholder="Pilih status" />
+                          </React.Fragment>
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -611,7 +618,9 @@ const Tickets = () => {
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Pilih prioritas" />
+                          <React.Fragment>
+                            <SelectValue placeholder="Pilih prioritas" />
+                          </React.Fragment>
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -635,7 +644,9 @@ const Tickets = () => {
                     <Select onValueChange={field.onChange} value={field.value || ''}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Pilih agen" />
+                          <React.Fragment>
+                            <SelectValue placeholder="Pilih agen" />
+                          </React.Fragment>
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
