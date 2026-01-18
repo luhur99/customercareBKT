@@ -154,7 +154,7 @@ const ManageRoles = () => {
       password: '',
       first_name: '',
       last_name: '',
-      role: 'sales', // Default role for new users
+      role: 'customer_service', // Default role for new users changed to 'customer_service'
     },
   });
 
@@ -326,11 +326,11 @@ const ManageRoles = () => {
                         <SelectValue placeholder="Select role" />
                       </SelectTrigger>
                       <SelectContent>
-                        {USER_ROLES.map((r) => (
-                          <SelectItem key={r} value={r}>
-                            {r.replace('_', ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                          </SelectItem>
-                        ))}
+                          {USER_ROLES.map((r) => (
+                            <SelectItem key={r} value={r}>
+                              {r.replace('_', ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                            </SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
                   </TableCell>
