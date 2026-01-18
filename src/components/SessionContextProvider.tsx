@@ -34,10 +34,9 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         } else if (event === 'SIGNED_OUT') {
           showSuccess('Logged out successfully!');
           navigate('/login'); // Redirect to login after logout
-        } else if (event === 'AUTH_API_ERROR') {
-          showError('Authentication error. Please try again.');
-          console.error('Auth API Error:', currentSession);
         }
+        // Removed the 'AUTH_API_ERROR' check as it's not a valid event type for onAuthStateChange.
+        // API errors should be handled when calling specific auth methods.
       }
     );
 
