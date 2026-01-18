@@ -19,7 +19,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     <div className="min-h-screen flex flex-col">
       <header className="bg-primary text-primary-foreground p-4 shadow-md">
         <nav className="container mx-auto flex justify-between items-center">
-          <Link to="/" className="text-2xl font-bold">My App</Link>
+          <Link to="/" className="text-2xl font-bold">Budi Karya Teknologi Smart Customer Service Systems</Link>
           <div className="flex items-center space-x-4">
             {session ? (
               <>
