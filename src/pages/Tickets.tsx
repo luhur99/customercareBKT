@@ -469,7 +469,7 @@ const Tickets = () => {
                 <TableHead>Status</TableHead>
                 <TableHead>Prioritas</TableHead>
                 <TableHead>Pelanggan</TableHead>
-                <TableHead>No WA Pelanggan</TableHead> {/* Changed header */}
+                <TableHead>No WA Pelanggan</TableHead>
                 <TableHead>Dibuat Oleh</TableHead>
                 <TableHead>Ditugaskan Ke</TableHead>
                 <TableHead>Dibuat Pada</TableHead>
@@ -479,7 +479,7 @@ const Tickets = () => {
             <TableBody>
               {tickets?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={canManageTickets ? 9 : 8} className="text-center">Tidak ada tiket ditemukan.</TableCell> {/* Adjusted colspan */}
+                  <TableCell colSpan={canManageTickets ? 9 : 8} className="text-center">Tidak ada tiket ditemukan.</TableCell>
                 </TableRow>
               ) : (
                 tickets?.map((ticket) => (
@@ -488,7 +488,7 @@ const Tickets = () => {
                     <TableCell className="capitalize">{ticket.status.replace('_', ' ')}</TableCell>
                     <TableCell className="capitalize">{ticket.priority}</TableCell>
                     <TableCell>{ticket.customer_name || '-'}</TableCell>
-                    <TableCell>{ticket.customer_whatsapp || '-'}</TableCell> {/* Changed to customer_whatsapp */}
+                    <TableCell>{ticket.customer_whatsapp || '-'}</TableCell>
                     <TableCell>{ticket.created_by_user?.first_name || ticket.created_by_user?.email || '-'}</TableCell>
                     <TableCell>{ticket.assigned_to_user?.first_name || ticket.assigned_to_user?.email || '-'}</TableCell>
                     <TableCell>{new Date(ticket.created_at).toLocaleDateString()}</TableCell>

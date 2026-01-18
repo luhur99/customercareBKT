@@ -22,11 +22,11 @@ const SelectTrigger = React.forwardRef<
     )}
     {...props}
   >
-    {/* Membungkus children dan ChevronDown dalam satu span */}
-    <span className="flex items-center justify-between w-full">
+    {/* Membungkus children dan ChevronDown dalam satu div */}
+    <div className="flex items-center justify-between w-full">
       {children}
       <ChevronDown className="h-4 w-4 opacity-50" />
-    </span>
+    </div>
   </SelectPrimitive.Trigger>
 ));
 SelectTrigger.displayName = SelectPrimitive.Trigger.displayName;
