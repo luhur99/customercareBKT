@@ -84,7 +84,7 @@ Deno.serve(async (req) => {
       console.log('[admin-users] Handling GET request: Fetching all users...');
       const { data: usersData, error: usersError } = await supabaseAdmin
         .from('profiles')
-        .select('id, first_name, last_name, role, created_at, email');
+        .select('id, first_name, last_name, role, updated_at, email'); // Changed created_at to updated_at
 
       console.log('[admin-users] GET users data result:', { count: usersData?.length, usersError });
 
@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
         first_name: p.first_name,
         last_name: p.last_name,
         role: p.role,
-        created_at: p.created_at,
+        created_at: p.updated_at, // Mapped to updated_at for display
       }));
 
       return new Response(JSON.stringify({ users: formattedUsers }), {
