@@ -322,6 +322,7 @@ const Tickets = () => {
 
         {/* Status Filter */}
         <Select value={statusFilter} onValueChange={(value: TicketStatus | 'all') => setStatusFilter(value)}>
+          {/* SelectTrigger dan SelectContent adalah anak langsung dari Select */}
           <SelectTrigger className="w-full sm:w-[180px]">
             <SelectValue placeholder="Filter Status" />
           </SelectTrigger>
