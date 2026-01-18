@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
-import { useForm } from '@hookform/resolvers/zod';
+import { useForm } from 'react-hook-form'; // <-- Perbaikan di sini
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2, PlusCircle, Edit } from 'lucide-react';
 
