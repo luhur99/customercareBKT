@@ -72,7 +72,7 @@ interface Ticket {
   priority: TicketPriority;
   created_by: string | null;
   assigned_to: string | null;
-  customer_whatsapp: string | null; // Changed from customer_email to customer_whatsapp
+  customer_whatsapp: string | null;
   customer_name: string | null;
   // Joined data for display
   created_by_user?: { email: string | null; first_name: string | null; last_name: string | null };
@@ -85,7 +85,7 @@ const createTicketFormSchema = z.object({
   description: z.string().optional(),
   status: z.enum(TICKET_STATUSES, { message: 'Please select a valid status.' }).default('open'),
   priority: z.enum(TICKET_PRIORITIES, { message: 'Please select a valid priority.' }).default('medium'),
-  customer_whatsapp: z.string().optional(), // Changed from customer_email to customer_whatsapp
+  customer_whatsapp: z.string().optional(),
   customer_name: z.string().optional(),
 });
 
@@ -95,8 +95,8 @@ const editTicketFormSchema = z.object({
   description: z.string().optional(),
   status: z.enum(TICKET_STATUSES, { message: 'Please select a valid status.' }),
   priority: z.enum(TICKET_PRIORITIES, { message: 'Please select a valid priority.' }),
-  assigned_to: z.string().nullable().optional(), // UUID of the assigned user
-  customer_whatsapp: z.string().optional(), // Changed from customer_email to customer_whatsapp
+  assigned_to: z.string().nullable().optional(),
+  customer_whatsapp: z.string().optional(),
   customer_name: z.string().optional(),
 });
 
@@ -125,7 +125,6 @@ const Tickets = () => {
   const { data: assignableUsers, isLoading: isLoadingAssignableUsers } = useQuery<UserProfile[], Error>({
     queryKey: ['assignableUsers'],
     queryFn: async () => {
-      // Updated query: fetch email directly from profiles
       const { data, error } = await supabase
         .from('profiles')
         .select('id, first_name, last_name, role, email')
@@ -141,7 +140,6 @@ const Tickets = () => {
   const { data: tickets, isLoading: isLoadingTickets, error: ticketsError } = useQuery<Ticket[], Error>({
     queryKey: ['tickets', statusFilter, priorityFilter, searchTerm],
     queryFn: async () => {
-      // Updated query: fetch email directly from profiles relation
       let query = supabase
         .from('tickets')
         .select(`
@@ -158,7 +156,6 @@ const Tickets = () => {
         query = query.eq('priority', priorityFilter);
       }
       if (searchTerm) {
-        // Search by title, customer name, or customer whatsapp
         query = query.or(`title.ilike.%${searchTerm}%,customer_name.ilike.%${searchTerm}%,customer_whatsapp.ilike.%${searchTerm}%`);
       }
 
@@ -168,7 +165,6 @@ const Tickets = () => {
 
       if (error) throw new Error(error.message);
       
-      // Data is now directly in the correct format, no need for complex mapping of auth_users
       return data as unknown as Ticket[];
     },
     enabled: !!session,
@@ -184,7 +180,7 @@ const Tickets = () => {
         .insert({
           ...newTicketData,
           created_by: user.id,
-          customer_email: newTicketData.customer_whatsapp, // Store WhatsApp in customer_email column
+          customer_email: newTicketData.customer_whatsapp,
         })
         .select()
         .single();
@@ -212,7 +208,7 @@ const Tickets = () => {
         .from('tickets')
         .update({
           ...updatedTicketData,
-          customer_email: updatedTicketData.customer_whatsapp, // Store WhatsApp in customer_email column
+          customer_email: updatedTicketData.customer_whatsapp,
         })
         .eq('id', selectedTicket.id)
         .select()
@@ -240,7 +236,7 @@ const Tickets = () => {
       description: '',
       status: 'open',
       priority: 'medium',
-      customer_whatsapp: '', // Changed from customer_email
+      customer_whatsapp: '',
       customer_name: '',
     },
   });
@@ -262,7 +258,7 @@ const Tickets = () => {
         status: selectedTicket.status,
         priority: selectedTicket.priority,
         assigned_to: selectedTicket.assigned_to || '',
-        customer_whatsapp: selectedTicket.customer_whatsapp || '', // Changed from customer_email
+        customer_whatsapp: selectedTicket.customer_whatsapp || '',
         customer_name: selectedTicket.customer_name || '',
       });
     }
@@ -407,12 +403,12 @@ const Tickets = () => {
                   />
                   <FormField
                     control={createTicketForm.control}
-                    name="customer_whatsapp" // Changed from customer_email
+                    name="customer_whatsapp"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>No WA Pelanggan (Opsional)</FormLabel> {/* Changed label */}
+                        <FormLabel>No WA Pelanggan (Opsional)</FormLabel>
                         <FormControl>
-                          <Input type="text" placeholder="Contoh: 081234567890" {...field} /> {/* Changed type and placeholder */}
+                          <Input type="text" placeholder="Contoh: 081234567890" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -425,7 +421,7 @@ const Tickets = () => {
                       <FormItem>
                         <FormLabel>Prioritas</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl> {/* Corrected placement */}
+                          <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Pilih prioritas" />
                             </SelectTrigger>
@@ -566,12 +562,12 @@ const Tickets = () => {
               />
               <FormField
                 control={editTicketForm.control}
-                name="customer_whatsapp" // Changed from customer_email
+                name="customer_whatsapp"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>No WA Pelanggan (Opsional)</FormLabel> {/* Changed label */}
+                    <FormLabel>No WA Pelanggan (Opsional)</FormLabel>
                     <FormControl>
-                      <Input type="text" {...field} /> {/* Changed type */}
+                      <Input type="text" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -584,7 +580,7 @@ const Tickets = () => {
                   <FormItem>
                     <FormLabel>Status</FormLabel>
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl> {/* Corrected placement */}
+                      <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Pilih status" />
                         </SelectTrigger>
@@ -608,7 +604,7 @@ const Tickets = () => {
                   <FormItem>
                     <FormLabel>Prioritas</FormLabel>
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl> {/* Corrected placement */}
+                      <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Pilih prioritas" />
                         </SelectTrigger>
@@ -632,7 +628,7 @@ const Tickets = () => {
                   <FormItem>
                     <FormLabel>Ditugaskan Ke</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value || ''}>
-                      <FormControl> {/* Corrected placement */}
+                      <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Pilih agen" />
                         </SelectTrigger>
