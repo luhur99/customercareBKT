@@ -86,45 +86,6 @@ const Dashboard = () => {
           </div>
         </div>
       )}
-
-      {role === 'sales' && (
-        <div className="text-center">
-          <h2 className="text-3xl font-semibold text-green-600 dark:text-green-400 mb-4">Sales Overview</h2>
-          <p className="text-lg text-gray-700 dark:text-gray-300">
-            Greetings, Sales Team! Your sales performance and leads are displayed here.
-          </p>
-          {/* Placeholder for sales specific content */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
-            <Card>
-              <CardHeader>
-                <CardTitle>New Leads</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-5xl font-bold text-blue-500">5</p>
-                <p className="text-gray-500">Potential customers to follow up</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Closed Deals</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-5xl font-bold text-green-500">3</p>
-                <p className="text-gray-500">Deals successfully closed this week</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Revenue Target</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-5xl font-bold text-yellow-500">$15k</p>
-                <p className="text-gray-500">Towards your monthly goal</p>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
