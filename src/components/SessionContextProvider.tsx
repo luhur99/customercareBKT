@@ -23,6 +23,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
   useEffect(() => {
     const fetchUserProfile = async (userId: string) => {
+      console.log('Fetching user profile for userId:', userId); // Added log
       const { data, error } = await supabase
         .from('profiles')
         .select('role')
@@ -33,12 +34,14 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         console.error('Error fetching user profile:', error);
         setRole(null);
       } else if (data) {
+        console.log('User role fetched:', data.role); // Added log
         setRole(data.role);
       }
     };
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
+        console.log('Auth state change event:', event, 'Session:', currentSession); // Added log
         setSession(currentSession);
         setUser(currentSession?.user || null);
         setLoading(false);
@@ -52,16 +55,19 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         if (event === 'SIGNED_IN') {
           showSuccess('Logged in successfully!');
           if (location.pathname === '/login') {
+            console.log('Redirecting from /login to /'); // Added log
             navigate('/'); // Redirect to home after login
           }
         } else if (event === 'SIGNED_OUT') {
           showSuccess('Logged out successfully!');
+          console.log('Redirecting to /login after sign out'); // Added log
           navigate('/login'); // Redirect to login after logout
         }
       }
     );
 
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      console.log('Initial session check:', session); // Added log
       setSession(session);
       setUser(session?.user || null);
       setLoading(false);
@@ -70,6 +76,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
       } else {
         setRole(null);
         if (location.pathname !== '/login') {
+          console.log('No initial session, redirecting to /login'); // Added log
           navigate('/login');
         }
       }
