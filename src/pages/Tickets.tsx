@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2, PlusCircle, Edit, Search } from 'lucide-react'; // Menambahkan ikon Search
+import { Loader2, PlusCircle, Edit, Search } from 'lucide-react';
 
 import { useSession } from '@/components/SessionContextProvider';
 import { Button } from '@/components/ui/button';
@@ -48,26 +48,18 @@ import { supabase } from '@/integrations/supabase/client';
 // Define ticket status and priority enums
 const TICKET_STATUSES = ['open', 'in_progress', 'closed'] as const;
 const TICKET_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
-const USER_ROLES = ['admin', 'customer_service', 'sales'] as const; // Assuming these roles can be assigned
+const USER_ROLES = ['admin', 'customer_service', 'sales'] as const;
 
 type TicketStatus = typeof TICKET_STATUSES[number];
 type TicketPriority = typeof TICKET_PRIORITIES[number];
 type UserRole = typeof USER_ROLES[number];
 
-// Interface for the raw profile data returned by Supabase select with auth.users join
-interface RawProfileData {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  role: UserRole;
-  auth_users: { email: string } | null;
-}
-
+// Updated interface: We now get email directly from profiles
 interface UserProfile {
   id: string;
   first_name: string | null;
   last_name: string | null;
-  email: string; // This is the email from auth.users
+  email: string | null; 
   role: UserRole;
 }
 
@@ -83,24 +75,9 @@ interface Ticket {
   customer_email: string | null;
   customer_name: string | null;
   // Joined data for display
-  created_by_user?: { email: string; first_name: string | null; last_name: string | null };
-  assigned_to_user?: { email: string; first_name: string | null; last_name: string | null };
+  created_by_user?: { email: string | null; first_name: string | null; last_name: string | null };
+  assigned_to_user?: { email: string | null; first_name: string | null; last_name: string | null };
 }
-
-// Interface for the raw ticket data returned by Supabase select with profile joins
-interface RawTicketData extends Omit<Ticket, 'created_by_user' | 'assigned_to_user'> {
-  created_by_user: {
-    first_name: string | null;
-    last_name: string | null;
-    auth_users: { email: string } | null;
-  } | null;
-  assigned_to_user: {
-    first_name: string | null;
-    last_name: string | null;
-    auth_users: { email: string } | null;
-  } | null;
-}
-
 
 // Form schema for creating a new ticket
 const createTicketFormSchema = z.object({
@@ -136,7 +113,7 @@ const Tickets = () => {
   const [priorityFilter, setPriorityFilter] = useState<TicketPriority | 'all'>('all');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Redirect if not authorized (only admin and customer_service can manage all tickets)
+  // Redirect if not authorized
   useEffect(() => {
     if (!loading && !session) {
       showError('Anda perlu masuk untuk melihat tiket.');
@@ -148,36 +125,29 @@ const Tickets = () => {
   const { data: assignableUsers, isLoading: isLoadingAssignableUsers } = useQuery<UserProfile[], Error>({
     queryKey: ['assignableUsers'],
     queryFn: async () => {
+      // Updated query: fetch email directly from profiles
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, first_name, last_name, role, auth_users:auth.users(email)')
-        .in('role', ['admin', 'customer_service']); // Only fetch admins and customer service for assignment
+        .select('id, first_name, last_name, role, email')
+        .in('role', ['admin', 'customer_service']);
 
       if (error) throw new Error(error.message);
-      if (!data) return []; // Handle null data case
-
-      // Cast data to the expected raw type before mapping
-      return (data as unknown as RawProfileData[]).map(p => ({
-        id: p.id,
-        first_name: p.first_name,
-        last_name: p.last_name,
-        email: p.auth_users?.email || 'N/A',
-        role: p.role,
-      }));
+      return data as UserProfile[];
     },
     enabled: !!session && (role === 'admin' || role === 'customer_service'),
   });
 
   // Fetch tickets
   const { data: tickets, isLoading: isLoadingTickets, error: ticketsError } = useQuery<Ticket[], Error>({
-    queryKey: ['tickets', statusFilter, priorityFilter, searchTerm], // Add filters to query key
+    queryKey: ['tickets', statusFilter, priorityFilter, searchTerm],
     queryFn: async () => {
+      // Updated query: fetch email directly from profiles relation
       let query = supabase
         .from('tickets')
         .select(`
           *,
-          created_by_user:profiles!created_by(first_name, last_name, auth_users:auth.users(email)),
-          assigned_to_user:profiles!assigned_to(first_name, last_name, auth_users:auth.users(email))
+          created_by_user:profiles!created_by(first_name, last_name, email),
+          assigned_to_user:profiles!assigned_to(first_name, last_name, email)
         `);
 
       // Apply filters
@@ -196,24 +166,11 @@ const Tickets = () => {
       const { data, error } = await query;
 
       if (error) throw new Error(error.message);
-      if (!data) return []; // Handle null data case
-
-      // Cast data to the expected raw type before mapping
-      return (data as unknown as RawTicketData[]).map(ticket => ({
-        ...ticket,
-        created_by_user: ticket.created_by_user ? {
-          first_name: ticket.created_by_user.first_name,
-          last_name: ticket.created_by_user.last_name,
-          email: ticket.created_by_user.auth_users?.email || 'N/A'
-        } : undefined,
-        assigned_to_user: ticket.assigned_to_user ? {
-          first_name: ticket.assigned_to_user.first_name,
-          last_name: ticket.assigned_to_user.last_name,
-          email: ticket.assigned_to_user.auth_users?.email || 'N/A'
-        } : undefined,
-      }));
+      
+      // Data is now directly in the correct format, no need for complex mapping of auth_users
+      return data as unknown as Ticket[];
     },
-    enabled: !!session, // Only fetch if logged in
+    enabled: !!session,
   });
 
   // Mutation for creating a new ticket
