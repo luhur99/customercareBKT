@@ -1,85 +1,89 @@
 // @ts-nocheck
-import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Content-Type': 'application/json',
-};
+}
 
-serve(async (req) => {
+Deno.serve(async (req) => {
+  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers: corsHeaders })
   }
 
   try {
-    // Initialize Supabase client with the user's JWT for authentication
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      {
-        global: {
-          headers: { Authorization: req.headers.get('Authorization')! },
-        },
-      }
-    );
+    const url = new URL(req.url);
+    console.log(`[admin-users] Request received: ${req.method} ${url.pathname}`);
 
-    // Get the user from the session to verify their role
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
-
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized: No active session or user found.' }), {
+    // 1. Authenticate User
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      console.error('[admin-users] Missing Authorization header');
+      return new Response(JSON.stringify({ error: 'Missing Authorization header' }), {
         status: 401,
-        headers: corsHeaders,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Fetch the user's role from the profiles table to check if they are an admin
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+
+    if (userError || !user) {
+      console.error('[admin-users] Auth error:', userError);
+      return new Response(JSON.stringify({ error: 'Unauthorized', details: userError }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // 2. Verify Admin Role
+    // Menggunakan select single untuk efisiensi
     const { data: profile, error: profileError } = await supabaseClient
       .from('profiles')
       .select('role')
       .eq('id', user.id)
       .single();
 
-    if (profileError || profile?.role !== 'admin') {
-      return new Response(JSON.stringify({ error: 'Forbidden: User is not an admin.' }), {
-        status: 403,
-        headers: corsHeaders,
+    if (profileError) {
+      console.error('[admin-users] Profile fetch error:', profileError);
+      return new Response(JSON.stringify({ error: 'Failed to verify role', details: profileError }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Create a Supabase client with the service role key for elevated privileges
+    if (profile?.role !== 'admin') {
+      console.error(`[admin-users] Access denied. User ${user.email} is ${profile?.role}`);
+      return new Response(JSON.stringify({ error: 'Forbidden: Admin access required' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // 3. Initialize Admin Client (Service Role)
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const url = new URL(req.url);
-
+    // 4. Handle Requests
     if (req.method === 'GET') {
-      // Fetch all users directly from profiles table
-      // Now simpler because email is in profiles!
+      console.log('[admin-users] Fetching all users...');
       const { data: usersData, error: usersError } = await supabaseAdmin
         .from('profiles')
-        .select(`
-          id,
-          first_name,
-          last_name,
-          role,
-          created_at,
-          email
-        `);
+        .select('id, first_name, last_name, role, created_at, email');
 
       if (usersError) {
-        console.error('Error fetching users:', usersError);
-        return new Response(JSON.stringify({ error: usersError.message }), {
-          status: 500,
-          headers: corsHeaders,
-        });
+        console.error('[admin-users] DB Error:', usersError);
+        throw usersError;
       }
 
-      // No need to map joined data anymore
       const formattedUsers = usersData.map(p => ({
         id: p.id,
         email: p.email || 'N/A',
@@ -91,87 +95,86 @@ serve(async (req) => {
 
       return new Response(JSON.stringify({ users: formattedUsers }), {
         status: 200,
-        headers: corsHeaders,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
-    } else if (req.method === 'POST') {
-      const { email, password, first_name, last_name, role: newRole } = await req.json();
+    } 
+    
+    else if (req.method === 'POST') {
+      const body = await req.json();
+      console.log('[admin-users] Creating user:', body.email);
+      const { email, password, first_name, last_name, role: newRole } = body;
 
-      // Create user in auth.users using admin privileges
       const { data: newUser, error: createUserError } = await supabaseAdmin.auth.admin.createUser({
         email,
         password,
-        email_confirm: true, // Automatically confirm email
+        email_confirm: true,
         user_metadata: { first_name, last_name },
       });
 
       if (createUserError) {
-        console.error('Error creating user:', createUserError);
+        console.error('[admin-users] Create User Error:', createUserError);
         return new Response(JSON.stringify({ error: createUserError.message }), {
           status: 400,
-          headers: corsHeaders,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
-      // The handle_new_user trigger automatically inserts the profile.
-      // We explicitly set the role here if it's not the default.
+      // Update role if needed
       if (newUser?.user?.id && newRole !== 'sales') {
         const { error: updateProfileError } = await supabaseAdmin
           .from('profiles')
           .update({ role: newRole })
           .eq('id', newUser.user.id);
-
+        
         if (updateProfileError) {
-          console.error('Error updating profile role after creation:', updateProfileError);
-          // Don't fail the whole request if user creation succeeded but role update failed
-          // Just log it or return a warning if needed
+          console.error('[admin-users] Role update warning:', updateProfileError);
         }
       }
 
       return new Response(JSON.stringify({ message: 'User created successfully', user: newUser?.user }), {
         status: 201,
-        headers: corsHeaders,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
-    } else if (req.method === 'PUT') {
+    } 
+    
+    else if (req.method === 'PUT') {
       const userId = url.searchParams.get('id');
       const newRole = url.searchParams.get('role');
+      console.log(`[admin-users] Updating role for ${userId} to ${newRole}`);
 
       if (!userId || !newRole) {
-        return new Response(JSON.stringify({ error: 'User ID and new role are required.' }), {
+        return new Response(JSON.stringify({ error: 'Missing id or role' }), {
           status: 400,
-          headers: corsHeaders,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
-      // Update the user's role in the profiles table using admin privileges
-      const { data, error: updateError } = await supabaseAdmin
+      const { error: updateError } = await supabaseAdmin
         .from('profiles')
         .update({ role: newRole })
         .eq('id', userId);
 
       if (updateError) {
-        console.error('Error updating user role:', updateError);
-        return new Response(JSON.stringify({ error: updateError.message }), {
-          status: 500,
-          headers: corsHeaders,
-        });
+        console.error('[admin-users] Update error:', updateError);
+        throw updateError;
       }
 
       return new Response(JSON.stringify({ message: 'User role updated successfully' }), {
         status: 200,
-        headers: corsHeaders,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
       status: 405,
-      headers: corsHeaders,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error) {
-    console.error('Edge function error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    console.error('[admin-users] Unhandled Exception:', error);
+    return new Response(JSON.stringify({ error: error.message || 'Internal Server Error' }), {
       status: 500,
-      headers: corsHeaders,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 });
