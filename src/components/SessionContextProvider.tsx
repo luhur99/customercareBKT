@@ -8,6 +8,7 @@ interface SessionContextType {
   session: Session | null;
   user: User | null;
   loading: boolean;
+  role: string | null; // Added role to the context type
 }
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
@@ -16,15 +17,37 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState<string | null>(null); // State for user role
   const navigate = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
+    const fetchUserProfile = async (userId: string) => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        console.error('Error fetching user profile:', error);
+        setRole(null);
+      } else if (data) {
+        setRole(data.role);
+      }
+    };
+
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
         setSession(currentSession);
         setUser(currentSession?.user || null);
         setLoading(false);
+
+        if (currentSession?.user) {
+          fetchUserProfile(currentSession.user.id);
+        } else {
+          setRole(null);
+        }
 
         if (event === 'SIGNED_IN') {
           showSuccess('Logged in successfully!');
@@ -35,17 +58,20 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
           showSuccess('Logged out successfully!');
           navigate('/login'); // Redirect to login after logout
         }
-        // Removed the 'AUTH_API_ERROR' check as it's not a valid event type for onAuthStateChange.
-        // API errors should be handled when calling specific auth methods.
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       setUser(session?.user || null);
       setLoading(false);
-      if (!session && location.pathname !== '/login') {
-        navigate('/login');
+      if (session?.user) {
+        await fetchUserProfile(session.user.id);
+      } else {
+        setRole(null);
+        if (location.pathname !== '/login') {
+          navigate('/login');
+        }
       }
     });
 
@@ -55,7 +81,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   }, [navigate, location.pathname]);
 
   return (
-    <SessionContext.Provider value={{ session, user, loading }}>
+    <SessionContext.Provider value={{ session, user, loading, role }}>
       {children}
     </SessionContext.Provider>
   );

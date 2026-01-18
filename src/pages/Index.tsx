@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 
 const Index = () => {
-  const { session, loading } = useSession();
+  const { session, loading, role } = useSession(); // Get role from useSession
 
   if (loading) {
     return (
@@ -22,9 +22,14 @@ const Index = () => {
         </h1>
         {session ? (
           <>
-            <p className="text-xl text-gray-600 dark:text-gray-400 mb-4">
+            <p className="text-xl text-gray-600 dark:text-gray-400 mb-2">
               You are logged in as {session.user?.email}!
             </p>
+            {role && (
+              <p className="text-lg text-gray-500 dark:text-gray-400 mb-4">
+                Your role: <span className="font-semibold capitalize">{role.replace('_', ' ')}</span>
+              </p>
+            )}
             <Button onClick={() => supabase.auth.signOut()}>Logout</Button>
           </>
         ) : (
