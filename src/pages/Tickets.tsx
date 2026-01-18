@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
-import { useForm } from 'react-hook-form'; // <-- Perbaikan di sini
+import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2, PlusCircle, Edit } from 'lucide-react';
+import { Loader2, PlusCircle, Edit, Search } from 'lucide-react'; // Menambahkan ikon Search
 
 import { useSession } from '@/components/SessionContextProvider';
 import { Button } from '@/components/ui/button';
@@ -131,6 +131,11 @@ const Tickets = () => {
   const [isEditTicketDialogOpen, setIsEditTicketDialogOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
 
+  // State for filters and search
+  const [statusFilter, setStatusFilter] = useState<TicketStatus | 'all'>('all');
+  const [priorityFilter, setPriorityFilter] = useState<TicketPriority | 'all'>('all');
+  const [searchTerm, setSearchTerm] = useState('');
+
   // Redirect if not authorized (only admin and customer_service can manage all tickets)
   useEffect(() => {
     if (!loading && !session) {
@@ -165,17 +170,30 @@ const Tickets = () => {
 
   // Fetch tickets
   const { data: tickets, isLoading: isLoadingTickets, error: ticketsError } = useQuery<Ticket[], Error>({
-    queryKey: ['tickets'],
+    queryKey: ['tickets', statusFilter, priorityFilter, searchTerm], // Add filters to query key
     queryFn: async () => {
-      // RLS policies will ensure users only see what they are allowed to see
-      const { data, error } = await supabase
+      let query = supabase
         .from('tickets')
         .select(`
           *,
           created_by_user:profiles!created_by(first_name, last_name, auth_users:auth.users(email)),
           assigned_to_user:profiles!assigned_to(first_name, last_name, auth_users:auth.users(email))
-        `)
-        .order('created_at', { ascending: false });
+        `);
+
+      // Apply filters
+      if (statusFilter !== 'all') {
+        query = query.eq('status', statusFilter);
+      }
+      if (priorityFilter !== 'all') {
+        query = query.eq('priority', priorityFilter);
+      }
+      if (searchTerm) {
+        query = query.or(`title.ilike.%${searchTerm}%,customer_name.ilike.%${searchTerm}%`);
+      }
+
+      query = query.order('created_at', { ascending: false });
+
+      const { data, error } = await query;
 
       if (error) throw new Error(error.message);
       if (!data) return []; // Handle null data case
@@ -328,11 +346,52 @@ const Tickets = () => {
     <div className="container mx-auto p-4">
       <h1 className="text-3xl font-bold mb-6 text-gray-900 dark:text-white">Tiket</h1>
 
-      {canManageTickets && (
-        <div className="flex justify-end mb-4">
+      <div className="flex flex-col sm:flex-row justify-between items-center mb-4 space-y-4 sm:space-y-0 sm:space-x-4">
+        {/* Search Input */}
+        <div className="relative w-full sm:w-1/3">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Cari judul atau nama pelanggan..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+
+        {/* Status Filter */}
+        <Select value={statusFilter} onValueChange={(value: TicketStatus | 'all') => setStatusFilter(value)}>
+          <SelectTrigger className="w-full sm:w-[180px]">
+            <SelectValue placeholder="Filter Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Semua Status</SelectItem>
+            {TICKET_STATUSES.map((s) => (
+              <SelectItem key={s} value={s}>
+                {s.replace('_', ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Priority Filter */}
+        <Select value={priorityFilter} onValueChange={(value: TicketPriority | 'all') => setPriorityFilter(value)}>
+          <SelectTrigger className="w-full sm:w-[180px]">
+            <SelectValue placeholder="Filter Prioritas" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Semua Prioritas</SelectItem>
+            {TICKET_PRIORITIES.map((p) => (
+              <SelectItem key={p} value={p}>
+                {p.charAt(0).toUpperCase() + p.slice(1)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {canManageTickets && (
           <Dialog open={isCreateTicketDialogOpen} onOpenChange={setIsCreateTicketDialogOpen}>
             <DialogTrigger asChild>
-              <Button>
+              <Button className="w-full sm:w-auto">
                 <PlusCircle className="mr-2 h-4 w-4" /> Buat Tiket Baru
               </Button>
             </DialogTrigger>
@@ -431,8 +490,8 @@ const Tickets = () => {
               </Form>
             </DialogContent>
           </Dialog>
-        </div>
-      )}
+        )}
+      </div>
 
       {isLoadingTickets || isLoadingAssignableUsers ? (
         <div className="flex items-center justify-center h-64">
