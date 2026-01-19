@@ -53,6 +53,7 @@ const updateTicketFormSchema = z.object({
 
 interface Ticket {
   id: string;
+  ticket_number: string; // Add new field for automatic ticket number
   created_at: string;
   title: string;
   description: string | null;
@@ -93,7 +94,7 @@ const TicketDetail = () => {
       if (!id) throw new Error('Ticket ID is missing.');
       const { data, error } = await supabase
         .from('tickets')
-        .select('*')
+        .select('*, ticket_number') // Select ticket_number
         .eq('id', id)
         .single();
 
@@ -248,7 +249,7 @@ const TicketDetail = () => {
         <CardHeader>
           <CardTitle className="text-3xl font-bold text-gray-900 dark:text-white">{ticket.title}</CardTitle>
           <CardDescription className="text-gray-600 dark:text-gray-400">
-            ID Tiket: {ticket.id} | Dibuat pada: {new Date(ticket.created_at).toLocaleString()}
+            No Tiket: {ticket.ticket_number} | Dibuat pada: {new Date(ticket.created_at).toLocaleString()}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
