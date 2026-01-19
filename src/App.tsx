@@ -11,6 +11,7 @@ import { SessionContextProvider } from "./components/SessionContextProvider";
 import Layout from "./components/Layout"; // Import the new Layout component
 import ManageRoles from "./pages/ManageRoles"; // Import ManageRoles
 import Tickets from "./pages/Tickets"; // Import the new Tickets page
+import SubmitComplaint from "./pages/SubmitComplaint"; // Import the new SubmitComplaint page
 
 const queryClient = new QueryClient();
 
@@ -27,6 +28,7 @@ const App = () => (
               <Route path="/welcome" element={<Index />} /> {/* Index page moved to /welcome */}
               <Route path="/manage-roles" element={<ManageRoles />} /> {/* Manage Roles page */}
               <Route path="/tickets" element={<Tickets />} /> {/* New Tickets page */}
+              <Route path="/submit-complaint" element={<SubmitComplaint />} /> {/* New SubmitComplaint page */}
               <Route path="/" element={<Dashboard />} /> {/* Set Dashboard as the default route */}
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />

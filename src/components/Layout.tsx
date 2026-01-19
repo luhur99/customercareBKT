@@ -72,7 +72,12 @@ const Layout = ({ children }: LayoutProps) => {
             </Link>
             <nav className="hidden md:flex items-center gap-4">
               <Link to="/" className="text-sm font-medium text-gray-700 hover:text-primary transition-colors">Dashboard</Link>
-              <Link to="/tickets" className="text-sm font-medium text-gray-700 hover:text-primary transition-colors">Tickets</Link>
+              {session && (role === 'admin' || role === 'customer_service') && (
+                <Link to="/tickets" className="text-sm font-medium text-gray-700 hover:text-primary transition-colors">Tickets</Link>
+              )}
+              {session && role === 'sales' && ( // Only show for 'sales' role (customers)
+                <Link to="/submit-complaint" className="text-sm font-medium text-gray-700 hover:text-primary transition-colors">Ajukan Keluhan</Link>
+              )}
             </nav>
           </div>
           <div className="flex items-center gap-4">
