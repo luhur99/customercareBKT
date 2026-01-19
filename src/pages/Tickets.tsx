@@ -162,7 +162,20 @@ const Tickets = () => {
                         {ticket.category}
                       </span>
                     </TableCell>
-                    <TableCell>{ticket.customer_name || '-'}</TableCell>
+                    <TableCell>
+                      {ticket.customer_whatsapp ? (
+                        <a
+                          href={`https://wa.me/${ticket.customer_whatsapp}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline dark:text-blue-400"
+                        >
+                          {ticket.customer_name || ticket.customer_whatsapp}
+                        </a>
+                      ) : (
+                        ticket.customer_name || '-'
+                      )}
+                    </TableCell>
                     <TableCell>{assignedAgentName}</TableCell>
                     <TableCell>
                       <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
