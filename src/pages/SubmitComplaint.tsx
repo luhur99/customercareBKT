@@ -49,7 +49,7 @@ const submitComplaintFormSchema = z.object({
 });
 
 const SubmitComplaint = () => {
-  const { session, loading, user } = useSession();
+  const { session, loading, user, role } = useSession(); // Get role from useSession
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -59,7 +59,12 @@ const SubmitComplaint = () => {
       showError('Anda perlu masuk untuk mengajukan keluhan.');
       navigate('/login');
     }
-  }, [session, loading, navigate]);
+    // Allow access for admin, customer_service, and sales roles
+    if (!loading && session && !['admin', 'customer_service', 'sales'].includes(role || '')) {
+      showError('Anda tidak memiliki izin untuk mengakses halaman ini.');
+      navigate('/');
+    }
+  }, [session, loading, navigate, role]); // Add role to dependencies
 
   const form = useForm<z.infer<typeof submitComplaintFormSchema>>({
     resolver: zodResolver(submitComplaintFormSchema),
@@ -110,7 +115,7 @@ const SubmitComplaint = () => {
     submitComplaintMutation.mutate(values);
   };
 
-  if (loading || !session) {
+  if (loading || !session || !['admin', 'customer_service', 'sales'].includes(role || '')) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
         <p className="text-gray-700 dark:text-gray-300">
