@@ -130,9 +130,9 @@ const Tickets = () => {
               <TableHead>Judul</TableHead>
               <TableHead>Kategori</TableHead>
               <TableHead>Pelanggan</TableHead>
-              <TableHead>Ditugaskan Kepada</TableHead> {/* New TableHead for Assigned To */}
+              <TableHead>Ditugaskan Kepada</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Prioritas</TableHead>
+              {/* <TableHead>Prioritas</TableHead> <-- Kolom Prioritas dihapus */}
               <TableHead>SLA</TableHead>
               <TableHead>Dibuat Pada</TableHead>
               {canManageTickets && <TableHead className="text-right">Aksi</TableHead>}
@@ -141,13 +141,13 @@ const Tickets = () => {
           <TableBody>
             {tickets?.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={canManageTickets ? 9 : 8} className="text-center py-8 text-gray-500"> {/* Adjusted colspan */}
+                <TableCell colSpan={canManageTickets ? 8 : 7} className="text-center py-8 text-gray-500"> {/* colSpan disesuaikan */}
                   Tidak ada tiket yang ditemukan.
                 </TableCell>
               </TableRow>
             ) : (
               tickets?.map((ticket) => {
-                const slaStatus = getSlaStatus(ticket.created_at, ticket.resolved_at, ticket.status); // Pass status
+                const slaStatus = getSlaStatus(ticket.created_at, ticket.resolved_at, ticket.status);
                 const slaBadgeClass =
                   slaStatus === 'green'
                     ? 'bg-green-100 text-green-800'
@@ -168,7 +168,7 @@ const Tickets = () => {
                       </span>
                     </TableCell>
                     <TableCell>{ticket.customer_name || '-'}</TableCell>
-                    <TableCell>{assignedAgentName}</TableCell> {/* New TableCell for Assigned To */}
+                    <TableCell>{assignedAgentName}</TableCell>
                     <TableCell>
                       <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
                         ticket.status === 'open' ? 'bg-yellow-100 text-yellow-800' :
@@ -179,8 +179,8 @@ const Tickets = () => {
                         {ticket.status.replace('_', ' ')}
                       </span>
                     </TableCell>
-                    <TableCell>
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
+                    {/* <TableCell> <-- Kolom Prioritas dihapus */}
+                    {/*   <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
                         ticket.priority === 'low' ? 'bg-green-100 text-green-800' :
                         ticket.priority === 'medium' ? 'bg-blue-100 text-blue-800' :
                         ticket.priority === 'high' ? 'bg-orange-100 text-orange-800' :
@@ -188,7 +188,7 @@ const Tickets = () => {
                       }`}>
                         {ticket.priority}
                       </span>
-                    </TableCell>
+                    </TableCell> */}
                     <TableCell>
                       <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${slaBadgeClass}`}>
                         {slaStatus}
