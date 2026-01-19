@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Eye, Edit, Trash2 } from 'lucide-react';
+import { Loader2, Eye } from 'lucide-react';
 
 import { useSession } from '@/components/SessionContextProvider';
 import { Button } from '@/components/ui/button';
@@ -14,13 +14,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui/tabs'; // Import Tabs components
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getSlaStatus } from '@/utils/sla'; // Import the SLA utility
@@ -50,7 +48,7 @@ const Tickets = () => {
   const { session, loading, role } = useSession();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [activeTab, setActiveTab] = useState<string>('unsolved'); // State for active tab
 
   // Redirect if not admin or customer_service
   useEffect(() => {
@@ -60,14 +58,16 @@ const Tickets = () => {
     }
   }, [session, loading, role, navigate]);
 
-  // Fetch tickets
+  // Fetch tickets based on active tab
   const { data: tickets, isLoading, error } = useQuery<Ticket[], Error>({
-    queryKey: ['tickets', filterStatus],
+    queryKey: ['tickets', activeTab], // Query key now depends on activeTab
     queryFn: async () => {
       let query = supabase.from('tickets').select('*, ticket_number, assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email)');
 
-      if (filterStatus !== 'all') {
-        query = query.eq('status', filterStatus);
+      if (activeTab === 'unsolved') {
+        query = query.neq('status', 'closed'); // Filter for unsolved tickets
+      } else if (activeTab === 'solved') {
+        query = query.eq('status', 'closed'); // Filter for solved tickets
       }
 
       const { data, error } = await query.order('created_at', { ascending: false });
@@ -104,31 +104,24 @@ const Tickets = () => {
     <div className="container mx-auto p-4">
       <h1 className="text-3xl font-bold mb-6 text-gray-900 dark:text-white">Daftar Tiket</h1>
 
-      <div className="flex justify-end mb-4">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline">
-              Filter Status: {filterStatus.replace('_', ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Filter berdasarkan Status</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setFilterStatus('all')}>Semua</DropdownMenuItem>
-            {TICKET_STATUSES.map((status) => (
-              <DropdownMenuItem key={status} onClick={() => setFilterStatus(status)}>
-                {status.replace('_', ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full mb-6">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="unsolved">Unsolved</TabsTrigger>
+          <TabsTrigger value="solved">Solved</TabsTrigger>
+        </TabsList>
+        <TabsContent value="unsolved">
+          {/* Content for Unsolved tickets */}
+        </TabsContent>
+        <TabsContent value="solved">
+          {/* Content for Solved tickets */}
+        </TabsContent>
+      </Tabs>
 
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>No Tiket</TableHead> {/* New TableHead for Ticket Number */}
+              <TableHead>No Tiket</TableHead>
               <TableHead>Judul</TableHead>
               <TableHead>Kategori</TableHead>
               <TableHead>Pelanggan</TableHead>
@@ -142,7 +135,7 @@ const Tickets = () => {
           <TableBody>
             {tickets?.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={canManageTickets ? 9 : 8} className="text-center py-8 text-gray-500"> {/* colSpan disesuaikan */}
+                <TableCell colSpan={canManageTickets ? 9 : 8} className="text-center py-8 text-gray-500">
                   Tidak ada tiket yang ditemukan.
                 </TableCell>
               </TableRow>
@@ -162,7 +155,7 @@ const Tickets = () => {
 
                 return (
                   <TableRow key={ticket.id}>
-                    <TableCell className="font-medium">{ticket.ticket_number}</TableCell> {/* New TableCell for Ticket Number */}
+                    <TableCell className="font-medium">{ticket.ticket_number}</TableCell>
                     <TableCell className="font-medium">{ticket.title}</TableCell>
                     <TableCell>
                       <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800">
