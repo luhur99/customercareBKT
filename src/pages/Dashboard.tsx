@@ -23,10 +23,17 @@ const Dashboard = () => {
         .eq('id', session.user.id)
         .single();
 
-      if (error) throw new Error(error.message);
+      if (error) {
+        // Handle "No rows found" (PGRST116) gracefully by returning an empty profile
+        if (error.code === 'PGRST116') {
+          return { first_name: null, last_name: null };
+        }
+        throw new Error(error.message);
+      }
       return data;
     },
     enabled: !!session?.user?.id, // Only run query if session and user ID exist
+    staleTime: 5 * 60 * 1000, // Cache data for 5 minutes to prevent excessive refetches
   });
 
   if (sessionLoading || profileLoading) {
@@ -61,6 +68,11 @@ const Dashboard = () => {
       <p className="text-center text-lg text-gray-700 dark:text-gray-300">
         Ini adalah dashboard pribadi Anda.
       </p>
+      {fullName === '' && session?.user?.email && ( // Tampilkan pesan ini jika nama lengkap kosong
+        <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-4">
+          Nama Anda belum diatur. Anda dapat memperbarui profil Anda di pengaturan.
+        </p>
+      )}
       {/* Anda bisa menambahkan konten dashboard lainnya di sini */}
     </div>
   );
