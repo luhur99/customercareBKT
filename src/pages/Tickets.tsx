@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Eye, Hand } from 'lucide-react'; // Added Hand icon
+import { Loader2, Eye, Hand } from 'lucide-react';
 
 import { useSession } from '@/components/SessionContextProvider';
 import { Button } from '@/components/ui/button';
@@ -43,6 +43,23 @@ interface Ticket {
   category: string;
   assigned_to_profile: { first_name: string | null; last_name: string | null; email: string | null; } | null;
 }
+
+// Helper function to format WhatsApp number to +62 format
+const formatWhatsappNumber = (number: string | null) => {
+  if (!number) return null;
+  let cleanedNumber = number.replace(/\D/g, ''); // Remove all non-digits
+
+  // Remove leading '0' if present
+  if (cleanedNumber.startsWith('0')) {
+    cleanedNumber = cleanedNumber.substring(1);
+  }
+
+  // Prepend '62' if it doesn't already start with '62'
+  if (!cleanedNumber.startsWith('62')) {
+    cleanedNumber = '62' + cleanedNumber;
+  }
+  return cleanedNumber;
+};
 
 const Tickets = () => {
   const { session, loading, role, user } = useSession();
@@ -136,7 +153,7 @@ const Tickets = () => {
       <h1 className="text-3xl font-bold mb-6 text-gray-900 dark:text-white">Daftar Tiket</h1>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full mb-6">
-        <TabsList className="grid w-full grid-cols-3"> {/* Changed to 3 columns */}
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="unassigned">Unassigned</TabsTrigger>
           <TabsTrigger value="in_progress">My Tickets</TabsTrigger>
           <TabsTrigger value="resolved">Resolved</TabsTrigger>
@@ -182,6 +199,8 @@ const Tickets = () => {
                   ? [ticket.assigned_to_profile.first_name, ticket.assigned_to_profile.last_name].filter(Boolean).join(' ') || ticket.assigned_to_profile.email 
                   : 'Belum Ditugaskan';
 
+                const formattedWhatsapp = formatWhatsappNumber(ticket.customer_whatsapp);
+
                 return (
                   <TableRow key={ticket.id}>
                     <TableCell className="font-medium">{ticket.ticket_number}</TableCell>
@@ -192,9 +211,9 @@ const Tickets = () => {
                       </span>
                     </TableCell>
                     <TableCell>
-                      {ticket.customer_whatsapp ? (
+                      {formattedWhatsapp ? (
                         <a
-                          href={`https://wa.me/${ticket.customer_whatsapp}`}
+                          href={`https://wa.me/${formattedWhatsapp}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-blue-600 hover:underline dark:text-blue-400"
