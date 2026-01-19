@@ -49,11 +49,12 @@ const updateTicketFormSchema = z.object({
   description: z.string().optional(), // Allow description to be updated
   resolution_steps: z.string().optional(), // New field for resolution steps
   category: z.enum(COMPLAINT_CATEGORIES, { message: 'Kategori keluhan diperlukan.' }), // Allow category to be updated
+  assigned_to: z.string().nullable().optional(), // New field for assigned_to
 });
 
 interface Ticket {
   id: string;
-  ticket_number: string; // Add new field for automatic ticket number
+  ticket_number: string;
   created_at: string;
   title: string;
   description: string | null;
@@ -65,12 +66,20 @@ interface Ticket {
   customer_whatsapp: string | null;
   resolved_at: string | null;
   resolution_steps: string | null;
-  category: typeof COMPLAINT_CATEGORIES[number]; // New field in interface
+  category: typeof COMPLAINT_CATEGORIES[number];
+  assigned_to_profile: { first_name: string | null; last_name: string | null; email: string | null; } | null; // For displaying assigned agent's name
 }
 
 interface UserProfile {
   first_name: string | null;
   last_name: string | null;
+}
+
+interface AssignableUser {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string;
 }
 
 const TicketDetail = () => {
@@ -94,7 +103,7 @@ const TicketDetail = () => {
       if (!id) throw new Error('Ticket ID is missing.');
       const { data, error } = await supabase
         .from('tickets')
-        .select('*, ticket_number') // Select ticket_number
+        .select('*, ticket_number, assigned_to_profile:profiles(first_name, last_name, email)') // Select ticket_number and assigned_to_profile
         .eq('id', id)
         .single();
 
@@ -127,6 +136,24 @@ const TicketDetail = () => {
     staleTime: 5 * 60 * 1000, // Cache profile for 5 minutes
   });
 
+  const canManageTickets = role === 'admin' || role === 'customer_service';
+
+  // Fetch assignable users (admin and customer_service roles)
+  const { data: assignableUsers, isLoading: isAssignableUsersLoading } = useQuery<AssignableUser[], Error>({
+    queryKey: ['assignableUsers'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name, email')
+        .in('role', ['admin', 'customer_service']); // Fetch users with these roles
+
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    enabled: canManageTickets, // Only fetch if the current user can manage tickets
+    staleTime: 10 * 60 * 1000, // Cache assignable users for 10 minutes
+  });
+
   // Initialize form with ticket data
   const form = useForm<z.infer<typeof updateTicketFormSchema>>({
     resolver: zodResolver(updateTicketFormSchema),
@@ -135,7 +162,8 @@ const TicketDetail = () => {
       priority: 'medium',
       description: '',
       resolution_steps: '',
-      category: 'General Inquiry', // Initialize new field
+      category: 'General Inquiry',
+      assigned_to: null, // Initialize new field
     },
   });
 
@@ -147,7 +175,8 @@ const TicketDetail = () => {
         priority: ticket.priority,
         description: ticket.description || '',
         resolution_steps: ticket.resolution_steps || '',
-        category: ticket.category, // Reset new field
+        category: ticket.category,
+        assigned_to: ticket.assigned_to, // Reset new field
       });
     }
   }, [ticket, form]); // Depend on ticket and form instance
@@ -156,6 +185,17 @@ const TicketDetail = () => {
   const updateTicketMutation = useMutation<any, Error, z.infer<typeof updateTicketFormSchema>>({
     mutationFn: async (updatedData) => {
       if (!id) throw new Error('Ticket ID is missing.');
+
+      const currentTicket = queryClient.getQueryData<Ticket>(['ticket', id]);
+      let newResolvedAt = currentTicket?.resolved_at;
+
+      // Logic to set/clear resolved_at timestamp
+      if (updatedData.status === 'resolved' && currentTicket?.status !== 'resolved') {
+        newResolvedAt = new Date().toISOString();
+      } else if (updatedData.status !== 'resolved' && currentTicket?.status === 'resolved') {
+        newResolvedAt = null;
+      }
+
       const { data, error } = await supabase
         .from('tickets')
         .update({
@@ -163,11 +203,12 @@ const TicketDetail = () => {
           priority: updatedData.priority,
           description: updatedData.description,
           resolution_steps: updatedData.resolution_steps,
-          category: updatedData.category, // Include new field in update
-          resolved_at: updatedData.status === 'resolved' ? new Date().toISOString() : null,
+          category: updatedData.category,
+          assigned_to: updatedData.assigned_to, // Include assigned_to
+          resolved_at: newResolvedAt, // Use the calculated resolved_at
         })
         .eq('id', id)
-        .select()
+        .select('*, assigned_to_profile:profiles(first_name, last_name, email)') // Re-fetch assigned_to_profile
         .single();
 
       if (error) throw new Error(error.message);
@@ -177,6 +218,7 @@ const TicketDetail = () => {
       showSuccess('Tiket berhasil diperbarui!');
       queryClient.invalidateQueries({ queryKey: ['ticket', id] });
       queryClient.invalidateQueries({ queryKey: ['tickets'] }); // Invalidate list as well
+      queryClient.invalidateQueries({ queryKey: ['dashboardTickets'] }); // Invalidate dashboard tickets
     },
     onError: (err) => {
       showError(`Gagal memperbarui tiket: ${err.message}`);
@@ -189,10 +231,9 @@ const TicketDetail = () => {
 
   // Check if the current user is the creator of the ticket
   const isCreator = user?.id === ticket?.created_by;
-  const canManageTickets = role === 'admin' || role === 'customer_service';
   const canViewTicket = isCreator || canManageTickets;
 
-  if (loading || isLoading || isCreatorProfileLoading) {
+  if (loading || isLoading || isCreatorProfileLoading || isAssignableUsersLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
@@ -238,6 +279,9 @@ const TicketDetail = () => {
       : 'bg-gray-100 text-gray-800';
 
   const creatorName = [creatorProfile?.first_name, creatorProfile?.last_name].filter(Boolean).join(' ') || 'Pengguna Tidak Dikenal';
+  const assignedAgentName = ticket.assigned_to_profile 
+    ? [ticket.assigned_to_profile.first_name, ticket.assigned_to_profile.last_name].filter(Boolean).join(' ') || ticket.assigned_to_profile.email 
+    : 'Belum Ditugaskan';
 
   return (
     <div className="container mx-auto p-4">
@@ -295,6 +339,9 @@ const TicketDetail = () => {
                 <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${slaBadgeClass}`}>
                   {slaStatus}
                 </span>
+              </p>
+              <p>
+                <strong>Ditugaskan Kepada:</strong> {assignedAgentName}
               </p>
               {ticket.resolved_at && (
                 <p><strong>Diselesaikan pada:</strong> {new Date(ticket.resolved_at).toLocaleString()}</p>
@@ -391,6 +438,31 @@ const TicketDetail = () => {
                               {TICKET_PRIORITIES.map((p) => (
                                 <SelectItem key={p} value={p}>
                                   {p.charAt(0).toUpperCase() + p.slice(1)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="assigned_to"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Ditugaskan Kepada</FormLabel>
+                          <Select onValueChange={field.onChange} defaultValue={field.value || ''}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Pilih agen" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="">Belum Ditugaskan</SelectItem> {/* Option to unassign */}
+                              {assignableUsers?.map((agent) => (
+                                <SelectItem key={agent.id} value={agent.id}>
+                                  {[agent.first_name, agent.last_name].filter(Boolean).join(' ') || agent.email}
                                 </SelectItem>
                               ))}
                             </SelectContent>
