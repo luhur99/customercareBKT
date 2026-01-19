@@ -1,139 +1,67 @@
-import React, { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query'; // Import useQuery
+import React from 'react';
 import { useSession } from '@/components/SessionContextProvider';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { showError } from '@/utils/toast';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Loader2 } from 'lucide-react'; // Import Loader2 icon
+import { Loader2 } from 'lucide-react';
+
+interface UserProfile {
+  first_name: string | null;
+  last_name: string | null;
+}
 
 const Dashboard = () => {
-  const { session, loading, role } = useSession();
-  const navigate = useNavigate();
+  const { session, loading: sessionLoading, role } = useSession();
 
-  useEffect(() => {
-    if (!loading && !session) {
-      showError('You need to be logged in to view the dashboard.');
-      navigate('/login');
-    }
-  }, [session, loading, navigate]);
-
-  // Fetch count of open tickets for customer_service
-  const { data: openTicketsCount, isLoading: isLoadingOpenTickets } = useQuery<number, Error>({
-    queryKey: ['openTicketsCount'],
+  // Fetch user profile to get first_name and last_name
+  const { data: profile, isLoading: profileLoading, error: profileError } = useQuery<UserProfile, Error>({
+    queryKey: ['userProfile', session?.user?.id],
     queryFn: async () => {
-      const { count, error } = await supabase
-        .from('tickets')
-        .select('*', { count: 'exact' })
-        .eq('status', 'open');
+      if (!session?.user?.id) throw new Error('User ID is missing.');
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('first_name, last_name')
+        .eq('id', session.user.id)
+        .single();
 
       if (error) throw new Error(error.message);
-      return count || 0;
+      return data;
     },
-    enabled: !!session && role === 'customer_service', // Only fetch if logged in and is customer_service
+    enabled: !!session?.user?.id, // Only run query if session and user ID exist
   });
 
-  // Fetch count of tickets resolved today for customer_service
-  const { data: resolvedTodayCount, isLoading: isLoadingResolvedToday } = useQuery<number, Error>({
-    queryKey: ['resolvedTodayCount'],
-    queryFn: async () => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Start of today
-      const tomorrow = new Date(today);
-      tomorrow.setDate(today.getDate() + 1); // Start of tomorrow
-
-      const { count, error } = await supabase
-        .from('tickets')
-        .select('*', { count: 'exact' })
-        .eq('status', 'closed')
-        .gte('created_at', today.toISOString()) // Assuming 'created_at' is updated on status change or we need a 'resolved_at' column
-        .lt('created_at', tomorrow.toISOString()); // This might need adjustment if 'resolved_at' column is added
-
-      if (error) throw new Error(error.message);
-      return count || 0;
-    },
-    enabled: !!session && role === 'customer_service', // Only fetch if logged in and is customer_service
-  });
-
-  if (loading) {
+  if (sessionLoading || profileLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
-        <p className="text-gray-700 dark:text-gray-300">Loading dashboard...</p>
+        <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+        <p className="text-gray-700 dark:text-gray-300">Memuat dashboard...</p>
       </div>
     );
   }
 
-  if (!session) {
-    return null; // Should redirect by useEffect
+  if (profileError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
+        <h1 className="text-3xl font-bold text-red-600 dark:text-red-400 mb-4">Error</h1>
+        <p className="text-lg text-gray-700 dark:text-gray-300">
+          Gagal memuat profil: {profileError.message}
+        </p>
+      </div>
+    );
   }
 
-  const userEmail = session.user?.email;
+  const fullName = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ');
+  const displayName = fullName || session?.user?.email?.split('@')[0] || 'User';
+  const displayRole = role ? role.replace('_', ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') : '';
 
   return (
     <div className="container mx-auto p-4">
       <h1 className="text-4xl font-extrabold text-center text-gray-900 dark:text-white mb-8">
-        Welcome, {userEmail}!
+        Welcome, {displayRole} {displayName}!
       </h1>
-
-      {role === 'admin' && (
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-semibold text-blue-600 dark:text-blue-400 mb-4">Admin Dashboard</h2>
-          <p className="text-lg text-gray-700 dark:text-gray-300">
-            As an administrator, you have full control over user roles and system settings.
-          </p>
-          <Button onClick={() => navigate('/manage-roles')} className="mt-4">
-            Manage User Roles
-          </Button>
-        </div>
-      )}
-
-      {role === 'customer_service' && (
-        <div className="text-center">
-          <h2 className="text-3xl font-semibold text-purple-600 dark:text-purple-400 mb-4">Customer Service Overview</h2>
-          <p className="text-lg text-gray-700 dark:text-gray-300">
-            Selamat Datang, Mari bahagiakan Diri kita dan customer kita hari ini!
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
-            <Card>
-              <CardHeader>
-                <CardTitle>Open Tickets</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {isLoadingOpenTickets ? (
-                  <Loader2 className="h-8 w-8 animate-spin text-blue-500 mx-auto" />
-                ) : (
-                  <p className="text-5xl font-bold text-blue-500">{openTicketsCount}</p>
-                )}
-                <p className="text-gray-500">Tickets awaiting your attention</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Resolved Today</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {isLoadingResolvedToday ? (
-                  <Loader2 className="h-8 w-8 animate-spin text-green-500 mx-auto" />
-                ) : (
-                  <p className="text-5xl font-bold text-green-500">{resolvedTodayCount}</p>
-                )}
-                <p className="text-gray-500">Tickets closed successfully</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Average Response Time</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {/* This metric is more complex and requires additional data/logic */}
-                <p className="text-5xl font-bold text-yellow-500">N/A</p>
-                <p className="text-gray-500">Keep up the great work!</p>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      )}
+      <p className="text-center text-lg text-gray-700 dark:text-gray-300">
+        Ini adalah dashboard pribadi Anda.
+      </p>
+      {/* Anda bisa menambahkan konten dashboard lainnya di sini */}
     </div>
   );
 };
