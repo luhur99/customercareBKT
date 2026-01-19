@@ -45,7 +45,7 @@ const COMPLAINT_CATEGORIES = [ // Re-define categories for consistency
 // Form schema for updating a ticket
 const updateTicketFormSchema = z.object({
   status: z.enum(TICKET_STATUSES, { message: 'Please select a valid status.' }),
-  priority: z.enum(TICKET_PRIORITIES, { message: 'Please select a valid priority.' }),
+  // priority: z.enum(TICKET_PRIORITIES, { message: 'Please select a valid priority.' }), // Prioritas dihapus dari skema
   description: z.string().optional(), // Allow description to be updated
   resolution_steps: z.string().optional(), // New field for resolution steps
   category: z.enum(COMPLAINT_CATEGORIES, { message: 'Kategori keluhan diperlukan.' }), // Allow category to be updated
@@ -159,7 +159,7 @@ const TicketDetail = () => {
     resolver: zodResolver(updateTicketFormSchema),
     defaultValues: { // Use defaultValues
       status: 'open',
-      priority: 'medium',
+      // priority: 'medium', // Prioritas dihapus dari defaultValues
       description: '',
       resolution_steps: '',
       category: 'General Inquiry',
@@ -172,7 +172,7 @@ const TicketDetail = () => {
     if (ticket) {
       form.reset({
         status: ticket.status,
-        priority: ticket.priority,
+        // priority: ticket.priority, // Prioritas dihapus dari reset
         description: ticket.description || '',
         resolution_steps: ticket.resolution_steps || '',
         category: ticket.category,
@@ -200,7 +200,7 @@ const TicketDetail = () => {
         .from('tickets')
         .update({
           status: updatedData.status,
-          priority: updatedData.priority,
+          // priority: updatedData.priority, // Prioritas dihapus dari payload update
           description: updatedData.description,
           resolution_steps: updatedData.resolution_steps,
           category: updatedData.category,
@@ -369,7 +369,7 @@ const TicketDetail = () => {
             <Card className="mt-8 bg-gray-50 dark:bg-gray-800">
               <CardHeader>
                 <CardTitle className="text-xl">Perbarui Tiket</CardTitle>
-                <CardDescription>Ubah status, prioritas, deskripsi, atau langkah penyelesaian tiket ini.</CardDescription>
+                <CardDescription>Ubah status, deskripsi, atau langkah penyelesaian tiket ini.</CardDescription>
               </CardHeader>
               <CardContent>
                 <Form {...form}>
@@ -422,6 +422,8 @@ const TicketDetail = () => {
                         </FormItem>
                       )}
                     />
+                    {/* Prioritas dihapus dari formulir */}
+                    {/*
                     <FormField
                       control={form.control}
                       name="priority"
@@ -446,6 +448,7 @@ const TicketDetail = () => {
                         </FormItem>
                       )}
                     />
+                    */}
                     <FormField
                       control={form.control}
                       name="assigned_to"
