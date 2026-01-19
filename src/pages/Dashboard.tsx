@@ -109,8 +109,8 @@ const Dashboard = () => {
   const activeTickets = allTickets?.filter(t => t.status === 'open' || t.status === 'in_progress') || [];
   const resolvedTickets = allTickets?.filter(t => t.status === 'resolved' || t.status === 'closed') || [];
   
-  const resolvedWithinSLA = resolvedTickets.filter(t => getSlaStatus(t.created_at, t.resolved_at) === 'green').length;
-  const resolvedOutsideSLA = resolvedTickets.filter(t => getSlaStatus(t.created_at, t.resolved_at) === 'red').length;
+  const resolvedWithinSLA = resolvedTickets.filter(t => getSlaStatus(t.created_at, t.resolved_at, t.status) === 'green').length;
+  const resolvedOutsideSLA = resolvedTickets.filter(t => getSlaStatus(t.created_at, t.resolved_at, t.status) === 'red').length;
   const totalResolvedCount = resolvedTickets.length;
   
   const slaPerformancePercentage = totalResolvedCount > 0 
@@ -207,13 +207,13 @@ const Dashboard = () => {
                   </TableHeader>
                   <TableBody>
                     {allTickets.map((ticket) => {
-                      const slaStatus = getSlaStatus(ticket.created_at, ticket.resolved_at);
+                      const slaStatus = getSlaStatus(ticket.created_at, ticket.resolved_at, ticket.status); // Pass status
                       const slaBadgeClass =
                         slaStatus === 'green'
                           ? 'bg-green-100 text-green-800'
-                          : slaStatus === 'red'
-                          ? 'bg-red-100 text-red-800'
-                          : 'bg-gray-100 text-gray-800';
+                          : slaStatus === 'yellow'
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : 'bg-red-100 text-red-800';
                       return (
                         <TableRow key={ticket.id}>
                           <TableCell className="font-medium">{ticket.title}</TableCell>

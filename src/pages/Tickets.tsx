@@ -147,13 +147,13 @@ const Tickets = () => {
               </TableRow>
             ) : (
               tickets?.map((ticket) => {
-                const slaStatus = getSlaStatus(ticket.created_at, ticket.resolved_at);
+                const slaStatus = getSlaStatus(ticket.created_at, ticket.resolved_at, ticket.status); // Pass status
                 const slaBadgeClass =
                   slaStatus === 'green'
                     ? 'bg-green-100 text-green-800'
-                    : slaStatus === 'red'
-                    ? 'bg-red-100 text-red-800'
-                    : 'bg-gray-100 text-gray-800';
+                    : slaStatus === 'yellow'
+                    ? 'bg-yellow-100 text-yellow-800'
+                    : 'bg-red-100 text-red-800';
                 
                 const assignedAgentName = ticket.assigned_to_profile 
                   ? [ticket.assigned_to_profile.first_name, ticket.assigned_to_profile.last_name].filter(Boolean).join(' ') || ticket.assigned_to_profile.email 

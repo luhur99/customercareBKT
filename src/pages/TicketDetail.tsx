@@ -270,13 +270,13 @@ const TicketDetail = () => {
     );
   }
 
-  const slaStatus = getSlaStatus(ticket.created_at, ticket.resolved_at);
+  const slaStatus = getSlaStatus(ticket.created_at, ticket.resolved_at, ticket.status); // Pass status
   const slaBadgeClass =
     slaStatus === 'green'
       ? 'bg-green-100 text-green-800'
-      : slaStatus === 'red'
-      ? 'bg-red-100 text-red-800'
-      : 'bg-gray-100 text-gray-800';
+      : slaStatus === 'yellow'
+      ? 'bg-yellow-100 text-yellow-800'
+      : 'bg-red-100 text-red-800';
 
   const creatorName = [creatorProfile?.first_name, creatorProfile?.last_name].filter(Boolean).join(' ') || 'Pengguna Tidak Dikenal';
   const assignedAgentName = ticket.assigned_to_profile 
