@@ -103,7 +103,7 @@ const TicketDetail = () => {
       if (!id) throw new Error('Ticket ID is missing.');
       const { data, error } = await supabase
         .from('tickets')
-        .select('*, ticket_number, assigned_to_profile:profiles(first_name, last_name, email)') // Select ticket_number and assigned_to_profile
+        .select('*, ticket_number, assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email)') // Explicitly specify the foreign key
         .eq('id', id)
         .single();
 
@@ -208,7 +208,7 @@ const TicketDetail = () => {
           resolved_at: newResolvedAt, // Use the calculated resolved_at
         })
         .eq('id', id)
-        .select('*, assigned_to_profile:profiles(first_name, last_name, email)') // Re-fetch assigned_to_profile
+        .select('*, assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email)') // Re-fetch assigned_to_profile with explicit FK
         .single();
 
       if (error) throw new Error(error.message);
