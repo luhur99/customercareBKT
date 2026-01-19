@@ -31,6 +31,7 @@ const TICKET_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
 
 interface Ticket {
   id: string;
+  ticket_number: string; // Added ticket_number
   created_at: string;
   title: string;
   description: string | null;
@@ -63,7 +64,7 @@ const Tickets = () => {
   const { data: tickets, isLoading, error } = useQuery<Ticket[], Error>({
     queryKey: ['tickets', filterStatus],
     queryFn: async () => {
-      let query = supabase.from('tickets').select('*, assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email)');
+      let query = supabase.from('tickets').select('*, ticket_number, assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email)');
 
       if (filterStatus !== 'all') {
         query = query.eq('status', filterStatus);
@@ -127,12 +128,12 @@ const Tickets = () => {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead>No Tiket</TableHead> {/* New TableHead for Ticket Number */}
               <TableHead>Judul</TableHead>
               <TableHead>Kategori</TableHead>
               <TableHead>Pelanggan</TableHead>
               <TableHead>Ditugaskan Kepada</TableHead>
               <TableHead>Status</TableHead>
-              {/* <TableHead>Prioritas</TableHead> <-- Kolom Prioritas dihapus */}
               <TableHead>SLA</TableHead>
               <TableHead>Dibuat Pada</TableHead>
               {canManageTickets && <TableHead className="text-right">Aksi</TableHead>}
@@ -141,7 +142,7 @@ const Tickets = () => {
           <TableBody>
             {tickets?.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={canManageTickets ? 8 : 7} className="text-center py-8 text-gray-500"> {/* colSpan disesuaikan */}
+                <TableCell colSpan={canManageTickets ? 9 : 8} className="text-center py-8 text-gray-500"> {/* colSpan disesuaikan */}
                   Tidak ada tiket yang ditemukan.
                 </TableCell>
               </TableRow>
@@ -161,6 +162,7 @@ const Tickets = () => {
 
                 return (
                   <TableRow key={ticket.id}>
+                    <TableCell className="font-medium">{ticket.ticket_number}</TableCell> {/* New TableCell for Ticket Number */}
                     <TableCell className="font-medium">{ticket.title}</TableCell>
                     <TableCell>
                       <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800">
@@ -179,16 +181,6 @@ const Tickets = () => {
                         {ticket.status.replace('_', ' ')}
                       </span>
                     </TableCell>
-                    {/* <TableCell> <-- Kolom Prioritas dihapus */}
-                    {/*   <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
-                        ticket.priority === 'low' ? 'bg-green-100 text-green-800' :
-                        ticket.priority === 'medium' ? 'bg-blue-100 text-blue-800' :
-                        ticket.priority === 'high' ? 'bg-orange-100 text-orange-800' :
-                        'bg-red-100 text-red-800'
-                      }`}>
-                        {ticket.priority}
-                      </span>
-                    </TableCell> */}
                     <TableCell>
                       <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${slaBadgeClass}`}>
                         {slaStatus}
