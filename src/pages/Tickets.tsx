@@ -41,7 +41,8 @@ interface Ticket {
   customer_name: string | null;
   customer_whatsapp: string | null;
   resolved_at: string | null;
-  category: string; // New field in interface
+  category: string;
+  assigned_to_profile: { first_name: string | null; last_name: string | null; email: string | null; } | null; // Added for assigned agent's profile
 }
 
 const Tickets = () => {
@@ -62,7 +63,7 @@ const Tickets = () => {
   const { data: tickets, isLoading, error } = useQuery<Ticket[], Error>({
     queryKey: ['tickets', filterStatus],
     queryFn: async () => {
-      let query = supabase.from('tickets').select('*');
+      let query = supabase.from('tickets').select('*, assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email)');
 
       if (filterStatus !== 'all') {
         query = query.eq('status', filterStatus);
@@ -127,8 +128,9 @@ const Tickets = () => {
           <TableHeader>
             <TableRow>
               <TableHead>Judul</TableHead>
-              <TableHead>Kategori</TableHead> {/* New TableHead for Category */}
+              <TableHead>Kategori</TableHead>
               <TableHead>Pelanggan</TableHead>
+              <TableHead>Ditugaskan Kepada</TableHead> {/* New TableHead for Assigned To */}
               <TableHead>Status</TableHead>
               <TableHead>Prioritas</TableHead>
               <TableHead>SLA</TableHead>
@@ -139,7 +141,7 @@ const Tickets = () => {
           <TableBody>
             {tickets?.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={canManageTickets ? 8 : 7} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={canManageTickets ? 9 : 8} className="text-center py-8 text-gray-500"> {/* Adjusted colspan */}
                   Tidak ada tiket yang ditemukan.
                 </TableCell>
               </TableRow>
@@ -152,6 +154,11 @@ const Tickets = () => {
                     : slaStatus === 'red'
                     ? 'bg-red-100 text-red-800'
                     : 'bg-gray-100 text-gray-800';
+                
+                const assignedAgentName = ticket.assigned_to_profile 
+                  ? [ticket.assigned_to_profile.first_name, ticket.assigned_to_profile.last_name].filter(Boolean).join(' ') || ticket.assigned_to_profile.email 
+                  : 'Belum Ditugaskan';
+
                 return (
                   <TableRow key={ticket.id}>
                     <TableCell className="font-medium">{ticket.title}</TableCell>
@@ -159,8 +166,9 @@ const Tickets = () => {
                       <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800">
                         {ticket.category}
                       </span>
-                    </TableCell> {/* New TableCell for Category */}
+                    </TableCell>
                     <TableCell>{ticket.customer_name || '-'}</TableCell>
+                    <TableCell>{assignedAgentName}</TableCell> {/* New TableCell for Assigned To */}
                     <TableCell>
                       <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
                         ticket.status === 'open' ? 'bg-yellow-100 text-yellow-800' :
