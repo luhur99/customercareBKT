@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Eye } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Loader2, Eye, Hand } from 'lucide-react'; // Added Hand icon
 
 import { useSession } from '@/components/SessionContextProvider';
 import { Button } from '@/components/ui/button';
@@ -18,22 +18,22 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
-} from '@/components/ui/tabs'; // Import Tabs components
+} from '@/components/ui/tabs';
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
-import { getSlaStatus } from '@/utils/sla'; // Import the SLA utility
+import { getSlaStatus } from '@/utils/sla';
 
-// Define ticket status and priority enums
-const TICKET_STATUSES = ['open', 'in_progress', 'resolved', 'closed'] as const;
+// Define ticket status and priority enums (updated for agent interaction)
+const TICKET_STATUSES_FOR_AGENT = ['open', 'in_progress', 'resolved'] as const;
 const TICKET_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
 
 interface Ticket {
   id: string;
-  ticket_number: string; // Added ticket_number
+  ticket_number: string;
   created_at: string;
   title: string;
   description: string | null;
-  status: typeof TICKET_STATUSES[number];
+  status: typeof TICKET_STATUSES_FOR_AGENT[number] | 'closed'; // Keep 'closed' for data, but not for agent setting
   priority: typeof TICKET_PRIORITIES[number];
   created_by: string;
   assigned_to: string | null;
@@ -41,14 +41,14 @@ interface Ticket {
   customer_whatsapp: string | null;
   resolved_at: string | null;
   category: string;
-  assigned_to_profile: { first_name: string | null; last_name: string | null; email: string | null; } | null; // Added for assigned agent's profile
+  assigned_to_profile: { first_name: string | null; last_name: string | null; email: string | null; } | null;
 }
 
 const Tickets = () => {
-  const { session, loading, role } = useSession();
+  const { session, loading, role, user } = useSession();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<string>('unsolved'); // State for active tab
+  const [activeTab, setActiveTab] = useState<string>('unassigned'); // Default tab changed to 'unassigned'
 
   // Redirect if not admin or customer_service
   useEffect(() => {
@@ -60,14 +60,16 @@ const Tickets = () => {
 
   // Fetch tickets based on active tab
   const { data: tickets, isLoading, error } = useQuery<Ticket[], Error>({
-    queryKey: ['tickets', activeTab], // Query key now depends on activeTab
+    queryKey: ['tickets', activeTab, user?.id], // Query key now depends on activeTab and user.id
     queryFn: async () => {
       let query = supabase.from('tickets').select('*, ticket_number, assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email)');
 
-      if (activeTab === 'unsolved') {
-        query = query.neq('status', 'closed'); // Filter for unsolved tickets
-      } else if (activeTab === 'solved') {
-        query = query.eq('status', 'closed'); // Filter for solved tickets
+      if (activeTab === 'unassigned') {
+        query = query.eq('status', 'open').is('assigned_to', null); // Unassigned tickets
+      } else if (activeTab === 'in_progress') {
+        query = query.eq('status', 'in_progress').eq('assigned_to', user?.id); // My tickets (in progress)
+      } else if (activeTab === 'resolved') {
+        query = query.eq('status', 'resolved'); // Resolved tickets
       }
 
       const { data, error } = await query.order('created_at', { ascending: false });
@@ -75,7 +77,36 @@ const Tickets = () => {
       if (error) throw new Error(error.message);
       return data;
     },
-    enabled: !!session && (role === 'admin' || role === 'customer_service'),
+    enabled: !!session && (role === 'admin' || role === 'customer_service') && !!user?.id,
+  });
+
+  // Mutation for taking a ticket
+  const takeTicketMutation = useMutation<any, Error, string>({
+    mutationFn: async (ticketId) => {
+      if (!user?.id) throw new Error('Pengguna tidak terautentikasi.');
+
+      const { data, error } = await supabase
+        .from('tickets')
+        .update({
+          status: 'in_progress',
+          assigned_to: user.id,
+        })
+        .eq('id', ticketId)
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    onSuccess: () => {
+      showSuccess('Tiket berhasil diambil dan status diperbarui menjadi In Progress!');
+      queryClient.invalidateQueries({ queryKey: ['tickets', 'unassigned'] }); // Refresh unassigned tab
+      queryClient.invalidateQueries({ queryKey: ['tickets', 'in_progress'] }); // Refresh my tickets tab
+      queryClient.invalidateQueries({ queryKey: ['dashboardTickets'] }); // Refresh dashboard if needed
+    },
+    onError: (err) => {
+      showError(`Gagal mengambil tiket: ${err.message}`);
+    },
   });
 
   if (loading || isLoading) {
@@ -105,16 +136,14 @@ const Tickets = () => {
       <h1 className="text-3xl font-bold mb-6 text-gray-900 dark:text-white">Daftar Tiket</h1>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full mb-6">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="unsolved">Unsolved</TabsTrigger>
-          <TabsTrigger value="solved">Solved</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-3"> {/* Changed to 3 columns */}
+          <TabsTrigger value="unassigned">Unassigned</TabsTrigger>
+          <TabsTrigger value="in_progress">My Tickets</TabsTrigger>
+          <TabsTrigger value="resolved">Resolved</TabsTrigger>
         </TabsList>
-        <TabsContent value="unsolved">
-          {/* Content for Unsolved tickets */}
-        </TabsContent>
-        <TabsContent value="solved">
-          {/* Content for Solved tickets */}
-        </TabsContent>
+        <TabsContent value="unassigned"></TabsContent>
+        <TabsContent value="in_progress"></TabsContent>
+        <TabsContent value="resolved"></TabsContent>
       </Tabs>
 
       <div className="rounded-md border">
@@ -194,7 +223,23 @@ const Tickets = () => {
                     </TableCell>
                     <TableCell>{new Date(ticket.created_at).toLocaleDateString()}</TableCell>
                     {canManageTickets && (
-                      <TableCell className="text-right">
+                      <TableCell className="text-right flex items-center justify-end gap-2">
+                        {activeTab === 'unassigned' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-2"
+                            onClick={() => takeTicketMutation.mutate(ticket.id)}
+                            disabled={takeTicketMutation.isPending}
+                          >
+                            {takeTicketMutation.isPending ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <Hand className="mr-2 h-4 w-4" />
+                            )}
+                            Take Ticket
+                          </Button>
+                        )}
                         <Link to={`/tickets/${ticket.id}`}>
                           <Button
                             variant="ghost"

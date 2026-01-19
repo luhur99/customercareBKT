@@ -30,7 +30,8 @@ import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getSlaStatus } from '@/utils/sla';
 
-const TICKET_STATUSES = ['open', 'in_progress', 'resolved', 'closed'] as const;
+// Updated TICKET_STATUSES for agent interaction (removed 'closed')
+const TICKET_STATUSES = ['open', 'in_progress', 'resolved'] as const;
 const TICKET_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
 const COMPLAINT_CATEGORIES = [
   'Technical Issue',
@@ -55,7 +56,7 @@ interface Ticket {
   created_at: string;
   title: string;
   description: string | null;
-  status: typeof TICKET_STATUSES[number];
+  status: typeof TICKET_STATUSES[number] | 'closed'; // Keep 'closed' for data, but not for agent setting
   priority: typeof TICKET_PRIORITIES[number];
   created_by: string;
   assigned_to: string | null;
@@ -139,8 +140,13 @@ const TicketDetail = () => {
 
   useEffect(() => {
     if (ticket) {
+      // Ensure the status is one of the allowed TICKET_STATUSES
+      const currentStatus = TICKET_STATUSES.includes(ticket.status as typeof TICKET_STATUSES[number])
+        ? (ticket.status as typeof TICKET_STATUSES[number])
+        : 'open'; // Default to 'open' if current status is 'closed' or invalid
+
       form.reset({
-        status: ticket.status,
+        status: currentStatus,
         description: ticket.description || '',
         resolution_steps: ticket.resolution_steps || '',
         category: ticket.category,
@@ -186,7 +192,7 @@ const TicketDetail = () => {
     onSuccess: () => {
       showSuccess('Tiket berhasil diperbarui!');
       queryClient.invalidateQueries({ queryKey: ['ticket', id] });
-      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['tickets'] }); // Invalidate all tickets tabs
       queryClient.invalidateQueries({ queryKey: ['dashboardTickets'] });
     },
     onError: (err) => {
