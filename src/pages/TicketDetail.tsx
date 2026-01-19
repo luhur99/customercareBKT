@@ -28,6 +28,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
+import { getSlaStatus } from '@/utils/sla'; // Import the SLA utility
 
 // Define ticket status and priority enums
 const TICKET_STATUSES = ['open', 'in_progress', 'resolved', 'closed'] as const;
@@ -186,6 +187,14 @@ const TicketDetail = () => {
     );
   }
 
+  const slaStatus = getSlaStatus(ticket.created_at, ticket.resolved_at);
+  const slaBadgeClass =
+    slaStatus === 'green'
+      ? 'bg-green-100 text-green-800'
+      : slaStatus === 'red'
+      ? 'bg-red-100 text-red-800'
+      : 'bg-gray-100 text-gray-800';
+
   return (
     <div className="container mx-auto p-4">
       <Button variant="ghost" onClick={() => navigate(-1)} className="mb-6">
@@ -229,6 +238,12 @@ const TicketDetail = () => {
                   'bg-red-100 text-red-800'
                 }`}>
                   {ticket.priority}
+                </span>
+              </p>
+              <p>
+                <strong>SLA:</strong>{' '}
+                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${slaBadgeClass}`}>
+                  {slaStatus}
                 </span>
               </p>
               {ticket.resolved_at && (

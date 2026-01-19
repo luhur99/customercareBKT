@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
+import { getSlaStatus } from '@/utils/sla'; // Import the SLA utility
 
 // Define ticket status and priority enums
 const TICKET_STATUSES = ['open', 'in_progress', 'resolved', 'closed'] as const;
@@ -128,6 +129,7 @@ const Tickets = () => {
               <TableHead>Pelanggan</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Prioritas</TableHead>
+              <TableHead>SLA</TableHead> {/* New SLA column */}
               <TableHead>Dibuat Pada</TableHead>
               {canManageTickets && <TableHead className="text-right">Aksi</TableHead>}
             </TableRow>
@@ -135,52 +137,66 @@ const Tickets = () => {
           <TableBody>
             {tickets?.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={canManageTickets ? 6 : 5} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={canManageTickets ? 7 : 6} className="text-center py-8 text-gray-500">
                   Tidak ada tiket yang ditemukan.
                 </TableCell>
               </TableRow>
             ) : (
-              tickets?.map((ticket) => (
-                <TableRow key={ticket.id}>
-                  <TableCell className="font-medium">{ticket.title}</TableCell>
-                  <TableCell>{ticket.customer_name || '-'}</TableCell>
-                  <TableCell>
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
-                      ticket.status === 'open' ? 'bg-yellow-100 text-yellow-800' :
-                      ticket.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
-                      ticket.status === 'resolved' ? 'bg-green-100 text-green-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {ticket.status.replace('_', ' ')}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
-                      ticket.priority === 'low' ? 'bg-green-100 text-green-800' :
-                      ticket.priority === 'medium' ? 'bg-blue-100 text-blue-800' :
-                      ticket.priority === 'high' ? 'bg-orange-100 text-orange-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
-                      {ticket.priority}
-                    </span>
-                  </TableCell>
-                  <TableCell>{new Date(ticket.created_at).toLocaleDateString()}</TableCell>
-                  {canManageTickets && (
-                    <TableCell className="text-right">
-                      <Link to={`/tickets/${ticket.id}`}>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                        >
-                          <Eye className="h-4 w-4" />
-                          <span className="sr-only">Lihat Detail</span>
-                        </Button>
-                      </Link>
+              tickets?.map((ticket) => {
+                const slaStatus = getSlaStatus(ticket.created_at, ticket.resolved_at);
+                const slaBadgeClass =
+                  slaStatus === 'green'
+                    ? 'bg-green-100 text-green-800'
+                    : slaStatus === 'red'
+                    ? 'bg-red-100 text-red-800'
+                    : 'bg-gray-100 text-gray-800';
+                return (
+                  <TableRow key={ticket.id}>
+                    <TableCell className="font-medium">{ticket.title}</TableCell>
+                    <TableCell>{ticket.customer_name || '-'}</TableCell>
+                    <TableCell>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
+                        ticket.status === 'open' ? 'bg-yellow-100 text-yellow-800' :
+                        ticket.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                        ticket.status === 'resolved' ? 'bg-green-100 text-green-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {ticket.status.replace('_', ' ')}
+                      </span>
                     </TableCell>
-                  )}
-                </TableRow>
-              ))
+                    <TableCell>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
+                        ticket.priority === 'low' ? 'bg-green-100 text-green-800' :
+                        ticket.priority === 'medium' ? 'bg-blue-100 text-blue-800' :
+                        ticket.priority === 'high' ? 'bg-orange-100 text-orange-800' :
+                        'bg-red-100 text-red-800'
+                      }`}>
+                        {ticket.priority}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${slaBadgeClass}`}>
+                        {slaStatus}
+                      </span>
+                    </TableCell>
+                    <TableCell>{new Date(ticket.created_at).toLocaleDateString()}</TableCell>
+                    {canManageTickets && (
+                      <TableCell className="text-right">
+                        <Link to={`/tickets/${ticket.id}`}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                          >
+                            <Eye className="h-4 w-4" />
+                            <span className="sr-only">Lihat Detail</span>
+                          </Button>
+                        </Link>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
