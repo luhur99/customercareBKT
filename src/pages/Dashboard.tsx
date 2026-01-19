@@ -1,25 +1,13 @@
-import React from 'react';
-import { useSession } from '@/components/SessionContextProvider';
+import React, { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { Loader2, ArrowRight, PlusCircle, Ticket, CheckCircle, TrendingUp } from 'lucide-react';
-import { Link } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Button } from '@/components/ui/button';
-import { getSlaStatus } from '@/utils/sla';
+import { Loader2, Ticket as TicketIcon, Users, CheckCircle } from 'lucide-react'; // Added CheckCircle
 
-interface UserProfile {
-  first_name: string | null;
-  last_name: string | null;
-}
+import { useSession } from '@/components/SessionContextProvider';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { showSuccess, showError } from '@/utils/toast';
+import { supabase } from '@/integrations/supabase/client';
 
 interface Ticket {
   id: string;
@@ -27,61 +15,83 @@ interface Ticket {
   title: string;
   status: string;
   priority: string;
-  customer_name: string | null;
-  resolved_at: string | null;
+  created_by: string;
+  assigned_to: string | null;
+}
+
+interface Profile {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  role: string;
+  email: string;
 }
 
 const Dashboard = () => {
-  const { session, loading: sessionLoading, role } = useSession();
+  const { session, loading, role, user } = useSession();
+  const navigate = useNavigate();
 
-  // Fetch user profile to get first_name and last_name
-  const { data: profile, isLoading: profileLoading, error: profileError } = useQuery<UserProfile, Error>({
-    queryKey: ['userProfile', session?.user?.id],
+  useEffect(() => {
+    if (!loading && !session) {
+      showError('Anda perlu masuk untuk melihat dashboard.');
+      navigate('/login');
+    }
+  }, [session, loading, navigate]);
+
+  // Query for all tickets (for sales role)
+  const { data: allTickets, isLoading: isLoadingAllTickets } = useQuery<Ticket[], Error>({
+    queryKey: ['allTickets'],
     queryFn: async () => {
-      if (!session?.user?.id) throw new Error('User ID is missing.');
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('first_name, last_name')
-        .eq('id', session.user.id)
-        .single();
-
-      if (error) {
-        if (error.code === 'PGRST116') { // No rows found
-          return { first_name: null, last_name: null };
-        }
-        throw new Error(error.message);
-      }
-      return data;
-    },
-    enabled: !!session?.user?.id,
-    staleTime: 5 * 60 * 1000,
-  });
-
-  // Fetch tickets based on role
-  const { data: allTickets, isLoading: ticketsLoading, error: ticketsError } = useQuery<Ticket[], Error>({
-    queryKey: ['dashboardTickets', session?.user?.id, role],
-    queryFn: async () => {
-      if (!session?.user?.id) return [];
-
-      let query = supabase.from('tickets').select('id, created_at, title, status, priority, customer_name, resolved_at');
-
-      if (role === 'sales') {
-        query = query.eq('created_by', session.user.id);
-      }
-      // For admin/customer_service, fetch all tickets to calculate various metrics
-      // No specific filter for status here, as we'll filter client-side for cards
-      // If no role or other roles, it will return an empty array due to initial check.
-
-      const { data, error } = await query.order('created_at', { ascending: false });
-
+      const { data, error } = await supabase.from('tickets').select('*');
       if (error) throw new Error(error.message);
       return data;
     },
-    enabled: !!session?.user?.id && !!role,
-    staleTime: 60 * 1000, // Cache tickets for 1 minute
+    enabled: !!session && role === 'sales',
   });
 
-  if (sessionLoading || profileLoading || ticketsLoading) {
+  // Query for active tickets (for admin/customer_service roles)
+  const { data: activeTickets, isLoading: isLoadingActiveTickets } = useQuery<Ticket[], Error>({
+    queryKey: ['activeTickets'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('tickets')
+        .select('*')
+        .neq('status', 'closed'); // Active tickets are not closed
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    enabled: !!session && (role === 'admin' || role === 'customer_service'),
+  });
+
+  // NEW: Query for resolved tickets by the current agent
+  const { data: resolvedTicketsByAgentCount, isLoading: isLoadingResolvedTicketsByAgent } = useQuery<number, Error>({
+    queryKey: ['resolvedTicketsByAgentCount', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return 0;
+      const { count, error } = await supabase
+        .from('tickets')
+        .select('*', { count: 'exact' })
+        .eq('assigned_to', user.id)
+        .eq('status', 'resolved'); // Count tickets resolved by the current agent
+
+      if (error) throw new Error(error.message);
+      return count || 0;
+    },
+    enabled: !!session && (role === 'admin' || role === 'customer_service') && !!user?.id,
+  });
+
+  // Query for profiles (for admin/customer_service to see agents)
+  const { data: profiles, isLoading: isLoadingProfiles } = useQuery<Profile[], Error>({
+    queryKey: ['profiles'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('profiles').select('*');
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    enabled: !!session && (role === 'admin' || role === 'customer_service'),
+  });
+
+  if (loading || isLoadingAllTickets || isLoadingActiveTickets || isLoadingProfiles || isLoadingResolvedTicketsByAgent) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
@@ -90,179 +100,58 @@ const Dashboard = () => {
     );
   }
 
-  if (profileError || ticketsError) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
-        <h1 className="text-3xl font-bold text-red-600 dark:text-red-400 mb-4">Error</h1>
-        <p className="text-lg text-gray-700 dark:text-gray-300">
-          Gagal memuat data: {profileError?.message || ticketsError?.message}
-        </p>
-      </div>
-    );
-  }
-
-  const fullName = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ');
-  const displayName = fullName || session?.user?.email?.split('@')[0] || 'User';
-  const displayRole = role ? role.replace('_', ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') : '';
-
-  // Calculate metrics from allTickets
-  const activeTickets = allTickets?.filter(t => t.status === 'open' || t.status === 'in_progress') || [];
-  const resolvedTickets = allTickets?.filter(t => t.status === 'resolved' || t.status === 'closed') || [];
-  
-  const resolvedWithinSLA = resolvedTickets.filter(t => getSlaStatus(t.created_at, t.resolved_at, t.status) === 'green').length;
-  const resolvedOutsideSLA = resolvedTickets.filter(t => getSlaStatus(t.created_at, t.resolved_at, t.status) === 'red').length;
-  const totalResolvedCount = resolvedTickets.length;
-  
-  const slaPerformancePercentage = totalResolvedCount > 0 
-    ? ((resolvedWithinSLA / totalResolvedCount) * 100).toFixed(1) 
-    : 'N/A';
-
   return (
     <div className="container mx-auto p-4">
-      <h1 className="text-4xl font-extrabold text-center text-gray-900 dark:text-white mb-8">
-        Selamat Datang, {displayRole} {displayName}!
-      </h1>
-      <p className="text-center text-lg text-gray-700 dark:text-gray-300 mb-8">
-        Ini adalah dashboard pribadi Anda.
-      </p>
-      {fullName === '' && session?.user?.email && (
-        <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-4 mb-8">
-          Nama Anda belum diatur. Anda dapat memperbarui profil Anda di pengaturan.
-        </p>
-      )}
+      <h1 className="text-3xl font-bold mb-6 text-gray-900 dark:text-white">Dashboard</h1>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-8">
-        {/* Card 1: Active Tickets */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {/* Card for Total/Active Tickets */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
-              {role === 'sales' ? 'Keluhan Aktif Anda' : 'Tiket Aktif'}
+              {role === 'sales' ? 'Total Tiket Dibuat' : 'Total Tiket Aktif'}
             </CardTitle>
-            <Ticket className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{activeTickets.length}</div>
-            <p className="text-xs text-muted-foreground">
-              {role === 'sales' ? 'Keluhan yang sedang diproses' : 'Tiket yang belum diselesaikan'}
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Card 2: SLA Performance */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Kinerja SLA</CardTitle>
-            <CheckCircle className="h-4 w-4 text-muted-foreground" />
+            <TicketIcon className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {slaPerformancePercentage}%
+              {role === 'sales' ? allTickets?.length : activeTickets?.length}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {resolvedWithinSLA} diselesaikan dalam SLA, {resolvedOutsideSLA} di luar SLA
-            </p>
           </CardContent>
         </Card>
 
-        {/* Card 3: Individual Performance */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Kinerja Individu</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {role === 'sales' ? allTickets?.length : activeTickets.length}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {role === 'sales' ? 'Total keluhan diajukan' : 'Tiket aktif yang dikelola'}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {role === 'sales' && (
-        <Card className="mt-8">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-2xl font-bold">Keluhan Anda</CardTitle>
-            <Link to="/submit-complaint">
-              <Button variant="outline" size="sm">
-                <PlusCircle className="mr-2 h-4 w-4" /> Ajukan Keluhan Baru
-              </Button>
-            </Link>
-          </CardHeader>
-          <CardContent>
-            {allTickets && allTickets.length > 0 ? (
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Judul</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Prioritas</TableHead>
-                      <TableHead>SLA</TableHead>
-                      <TableHead>Dibuat Pada</TableHead>
-                      <TableHead className="text-right">Aksi</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {allTickets.map((ticket) => {
-                      const slaStatus = getSlaStatus(ticket.created_at, ticket.resolved_at, ticket.status); // Pass status
-                      const slaBadgeClass =
-                        slaStatus === 'green'
-                          ? 'bg-green-100 text-green-800'
-                          : slaStatus === 'yellow'
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : 'bg-red-100 text-red-800';
-                      return (
-                        <TableRow key={ticket.id}>
-                          <TableCell className="font-medium">{ticket.title}</TableCell>
-                          <TableCell>
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
-                              ticket.status === 'open' ? 'bg-yellow-100 text-yellow-800' :
-                              ticket.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
-                              ticket.status === 'resolved' ? 'bg-green-100 text-green-800' :
-                              'bg-gray-100 text-gray-800'
-                            }`}>
-                              {ticket.status.replace('_', ' ')}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
-                              ticket.priority === 'low' ? 'bg-green-100 text-green-800' :
-                              ticket.priority === 'medium' ? 'bg-blue-100 text-blue-800' :
-                              ticket.priority === 'high' ? 'bg-orange-100 text-orange-800' :
-                              'bg-red-100 text-red-800'
-                            }`}>
-                              {ticket.priority}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${slaBadgeClass}`}>
-                              {slaStatus}
-                            </span>
-                          </TableCell>
-                          <TableCell>{new Date(ticket.created_at).toLocaleDateString()}</TableCell>
-                          <TableCell className="text-right">
-                            <Link to={`/tickets/${ticket.id}`}>
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                <ArrowRight className="h-4 w-4" />
-                                <span className="sr-only">Lihat Detail</span>
-                              </Button>
-                            </Link>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+        {/* NEW CARD: Tiket Diselesaikan Oleh Saya */}
+        {(role === 'admin' || role === 'customer_service') && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">
+                Tiket Diselesaikan Oleh Saya
+              </CardTitle>
+              <CheckCircle className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {resolvedTicketsByAgentCount}
               </div>
-            ) : (
-              <p className="text-center text-gray-500 py-4">Anda belum mengajukan keluhan apa pun.</p>
-            )}
-          </CardContent>
-        </Card>
-      )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Card for Total Agents */}
+        {(role === 'admin' || role === 'customer_service') && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Agen</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {profiles?.filter(p => p.role === 'admin' || p.role === 'customer_service').length}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   );
 };
