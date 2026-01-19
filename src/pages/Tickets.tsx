@@ -41,6 +41,7 @@ interface Ticket {
   customer_name: string | null;
   customer_whatsapp: string | null;
   resolved_at: string | null;
+  category: string; // New field in interface
 }
 
 const Tickets = () => {
@@ -126,10 +127,11 @@ const Tickets = () => {
           <TableHeader>
             <TableRow>
               <TableHead>Judul</TableHead>
+              <TableHead>Kategori</TableHead> {/* New TableHead for Category */}
               <TableHead>Pelanggan</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Prioritas</TableHead>
-              <TableHead>SLA</TableHead> {/* New SLA column */}
+              <TableHead>SLA</TableHead>
               <TableHead>Dibuat Pada</TableHead>
               {canManageTickets && <TableHead className="text-right">Aksi</TableHead>}
             </TableRow>
@@ -137,7 +139,7 @@ const Tickets = () => {
           <TableBody>
             {tickets?.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={canManageTickets ? 7 : 6} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={canManageTickets ? 8 : 7} className="text-center py-8 text-gray-500">
                   Tidak ada tiket yang ditemukan.
                 </TableCell>
               </TableRow>
@@ -153,6 +155,11 @@ const Tickets = () => {
                 return (
                   <TableRow key={ticket.id}>
                     <TableCell className="font-medium">{ticket.title}</TableCell>
+                    <TableCell>
+                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800">
+                        {ticket.category}
+                      </span>
+                    </TableCell> {/* New TableCell for Category */}
                     <TableCell>{ticket.customer_name || '-'}</TableCell>
                     <TableCell>
                       <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${

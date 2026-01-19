@@ -33,6 +33,14 @@ import { getSlaStatus } from '@/utils/sla'; // Import the SLA utility
 // Define ticket status and priority enums
 const TICKET_STATUSES = ['open', 'in_progress', 'resolved', 'closed'] as const;
 const TICKET_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
+const COMPLAINT_CATEGORIES = [ // Re-define categories for consistency
+  'Technical Issue',
+  'Billing Inquiry',
+  'Service Interruption',
+  'Product Feedback',
+  'General Inquiry',
+  'Other',
+] as const;
 
 // Form schema for updating a ticket
 const updateTicketFormSchema = z.object({
@@ -40,6 +48,7 @@ const updateTicketFormSchema = z.object({
   priority: z.enum(TICKET_PRIORITIES, { message: 'Please select a valid priority.' }),
   description: z.string().optional(), // Allow description to be updated
   resolution_steps: z.string().optional(), // New field for resolution steps
+  category: z.enum(COMPLAINT_CATEGORIES, { message: 'Kategori keluhan diperlukan.' }), // Allow category to be updated
 });
 
 interface Ticket {
@@ -54,7 +63,8 @@ interface Ticket {
   customer_name: string | null;
   customer_whatsapp: string | null;
   resolved_at: string | null;
-  resolution_steps: string | null; // New field in interface
+  resolution_steps: string | null;
+  category: typeof COMPLAINT_CATEGORIES[number]; // New field in interface
 }
 
 const TicketDetail = () => {
@@ -95,7 +105,8 @@ const TicketDetail = () => {
       status: 'open',
       priority: 'medium',
       description: '',
-      resolution_steps: '', // Initialize new field
+      resolution_steps: '',
+      category: 'General Inquiry', // Initialize new field
     },
   });
 
@@ -106,7 +117,8 @@ const TicketDetail = () => {
         status: ticket.status,
         priority: ticket.priority,
         description: ticket.description || '',
-        resolution_steps: ticket.resolution_steps || '', // Reset new field
+        resolution_steps: ticket.resolution_steps || '',
+        category: ticket.category, // Reset new field
       });
     }
   }, [ticket, form]); // Depend on ticket and form instance
@@ -121,7 +133,8 @@ const TicketDetail = () => {
           status: updatedData.status,
           priority: updatedData.priority,
           description: updatedData.description,
-          resolution_steps: updatedData.resolution_steps, // Include new field in update
+          resolution_steps: updatedData.resolution_steps,
+          category: updatedData.category, // Include new field in update
           resolved_at: updatedData.status === 'resolved' ? new Date().toISOString() : null,
         })
         .eq('id', id)
@@ -241,6 +254,12 @@ const TicketDetail = () => {
                 </span>
               </p>
               <p>
+                <strong>Kategori:</strong>{' '}
+                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800">
+                  {ticket.category}
+                </span>
+              </p>
+              <p>
                 <strong>SLA:</strong>{' '}
                 <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${slaBadgeClass}`}>
                   {slaStatus}
@@ -277,6 +296,30 @@ const TicketDetail = () => {
               <CardContent>
                 <Form {...form}>
                   <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="category"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Kategori</FormLabel>
+                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Pilih kategori" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {COMPLAINT_CATEGORIES.map((c) => (
+                                <SelectItem key={c} value={c}>
+                                  {c}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
                     <FormField
                       control={form.control}
                       name="status"

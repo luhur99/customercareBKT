@@ -18,9 +18,26 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
+
+// Define available complaint categories
+const COMPLAINT_CATEGORIES = [
+  'Technical Issue',
+  'Billing Inquiry',
+  'Service Interruption',
+  'Product Feedback',
+  'General Inquiry',
+  'Other',
+] as const;
 
 // Define form schema for submitting a new complaint
 const submitComplaintFormSchema = z.object({
@@ -28,6 +45,7 @@ const submitComplaintFormSchema = z.object({
   description: z.string().optional(),
   customer_name: z.string().min(1, { message: 'Nama pelanggan diperlukan.' }),
   customer_whatsapp: z.string().optional(),
+  category: z.enum(COMPLAINT_CATEGORIES, { message: 'Kategori keluhan diperlukan.' }), // New category field
 });
 
 const SubmitComplaint = () => {
@@ -50,6 +68,7 @@ const SubmitComplaint = () => {
       description: '',
       customer_name: '',
       customer_whatsapp: '',
+      category: 'General Inquiry', // Default category
     },
   });
 
@@ -65,6 +84,7 @@ const SubmitComplaint = () => {
           description: newComplaintData.description,
           customer_name: newComplaintData.customer_name,
           customer_whatsapp: newComplaintData.customer_whatsapp,
+          category: newComplaintData.category, // Include category
           status: 'open', // Default status for new complaints
           priority: 'medium', // Default priority for new complaints
           created_by: user.id,
@@ -112,6 +132,30 @@ const SubmitComplaint = () => {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <FormField
+                control={form.control}
+                name="category"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Kategori Keluhan</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Pilih kategori" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {COMPLAINT_CATEGORIES.map((category) => (
+                          <SelectItem key={category} value={category}>
+                            {category}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <FormField
                 control={form.control}
                 name="title"
