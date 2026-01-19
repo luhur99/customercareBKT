@@ -2,7 +2,7 @@ import React from 'react';
 import { useSession } from '@/components/SessionContextProvider';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Loader2, ArrowRight, PlusCircle } from 'lucide-react';
+import { Loader2, ArrowRight, PlusCircle, Ticket, CheckCircle, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -58,7 +58,7 @@ const Dashboard = () => {
   });
 
   // Fetch tickets based on role
-  const { data: tickets, isLoading: ticketsLoading, error: ticketsError } = useQuery<Ticket[], Error>({
+  const { data: allTickets, isLoading: ticketsLoading, error: ticketsError } = useQuery<Ticket[], Error>({
     queryKey: ['dashboardTickets', session?.user?.id, role],
     queryFn: async () => {
       if (!session?.user?.id) return [];
@@ -67,11 +67,10 @@ const Dashboard = () => {
 
       if (role === 'sales') {
         query = query.eq('created_by', session.user.id);
-      } else if (role === 'admin' || role === 'customer_service') {
-        query = query.in('status', ['open', 'in_progress']);
-      } else {
-        return []; // No tickets for other roles or unauthenticated
       }
+      // For admin/customer_service, fetch all tickets to calculate various metrics
+      // No specific filter for status here, as we'll filter client-side for cards
+      // If no role or other roles, it will return an empty array due to initial check.
 
       const { data, error } = await query.order('created_at', { ascending: false });
 
@@ -106,6 +105,18 @@ const Dashboard = () => {
   const displayName = fullName || session?.user?.email?.split('@')[0] || 'User';
   const displayRole = role ? role.replace('_', ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') : '';
 
+  // Calculate metrics from allTickets
+  const activeTickets = allTickets?.filter(t => t.status === 'open' || t.status === 'in_progress') || [];
+  const resolvedTickets = allTickets?.filter(t => t.status === 'resolved' || t.status === 'closed') || [];
+  
+  const resolvedWithinSLA = resolvedTickets.filter(t => getSlaStatus(t.created_at, t.resolved_at) === 'green').length;
+  const resolvedOutsideSLA = resolvedTickets.filter(t => getSlaStatus(t.created_at, t.resolved_at) === 'red').length;
+  const totalResolvedCount = resolvedTickets.length;
+  
+  const slaPerformancePercentage = totalResolvedCount > 0 
+    ? ((resolvedWithinSLA / totalResolvedCount) * 100).toFixed(1) 
+    : 'N/A';
+
   return (
     <div className="container mx-auto p-4">
       <h1 className="text-4xl font-extrabold text-center text-gray-900 dark:text-white mb-8">
@@ -120,6 +131,56 @@ const Dashboard = () => {
         </p>
       )}
 
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-8">
+        {/* Card 1: Active Tickets */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">
+              {role === 'sales' ? 'Keluhan Aktif Anda' : 'Tiket Aktif'}
+            </CardTitle>
+            <Ticket className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{activeTickets.length}</div>
+            <p className="text-xs text-muted-foreground">
+              {role === 'sales' ? 'Keluhan yang sedang diproses' : 'Tiket yang belum diselesaikan'}
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Card 2: SLA Performance */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Kinerja SLA</CardTitle>
+            <CheckCircle className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {slaPerformancePercentage}%
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {resolvedWithinSLA} diselesaikan dalam SLA, {resolvedOutsideSLA} di luar SLA
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Card 3: Individual Performance */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Kinerja Individu</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {role === 'sales' ? allTickets?.length : activeTickets.length}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {role === 'sales' ? 'Total keluhan diajukan' : 'Tiket aktif yang dikelola'}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
       {role === 'sales' && (
         <Card className="mt-8">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -131,7 +192,7 @@ const Dashboard = () => {
             </Link>
           </CardHeader>
           <CardContent>
-            {tickets && tickets.length > 0 ? (
+            {allTickets && allTickets.length > 0 ? (
               <div className="rounded-md border">
                 <Table>
                   <TableHeader>
@@ -145,7 +206,7 @@ const Dashboard = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {tickets.map((ticket) => {
+                    {allTickets.map((ticket) => {
                       const slaStatus = getSlaStatus(ticket.created_at, ticket.resolved_at);
                       const slaBadgeClass =
                         slaStatus === 'green'
@@ -206,7 +267,7 @@ const Dashboard = () => {
       {(role === 'admin' || role === 'customer_service') && (
         <Card className="mt-8">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-2xl font-bold">Tiket Aktif ({tickets?.length || 0})</CardTitle>
+            <CardTitle className="text-2xl font-bold">Tiket Aktif ({activeTickets.length})</CardTitle>
             <Link to="/tickets">
               <Button variant="outline" size="sm">
                 <ArrowRight className="mr-2 h-4 w-4" /> Lihat Semua Tiket
@@ -214,7 +275,7 @@ const Dashboard = () => {
             </Link>
           </CardHeader>
           <CardContent>
-            {tickets && tickets.length > 0 ? (
+            {activeTickets && activeTickets.length > 0 ? (
               <div className="rounded-md border">
                 <Table>
                   <TableHeader>
@@ -229,7 +290,7 @@ const Dashboard = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {tickets.map((ticket) => {
+                    {activeTickets.map((ticket) => {
                       const slaStatus = getSlaStatus(ticket.created_at, ticket.resolved_at);
                       const slaBadgeClass =
                         slaStatus === 'green'
