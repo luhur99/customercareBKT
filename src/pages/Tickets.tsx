@@ -180,7 +180,7 @@ const Tickets = () => {
         .insert({
           ...newTicketData,
           created_by: user.id,
-          customer_email: newTicketData.customer_whatsapp,
+          // customer_email: newTicketData.customer_whatsapp, // Removed this line
         })
         .select()
         .single();
@@ -208,7 +208,7 @@ const Tickets = () => {
         .from('tickets')
         .update({
           ...updatedTicketData,
-          customer_email: updatedTicketData.customer_whatsapp,
+          // customer_email: updatedTicketData.customer_whatsapp, // Removed this line
         })
         .eq('id', selectedTicket.id)
         .select()
