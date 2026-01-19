@@ -38,6 +38,7 @@ const updateTicketFormSchema = z.object({
   status: z.enum(TICKET_STATUSES, { message: 'Please select a valid status.' }),
   priority: z.enum(TICKET_PRIORITIES, { message: 'Please select a valid priority.' }),
   description: z.string().optional(), // Allow description to be updated
+  resolution_steps: z.string().optional(), // New field for resolution steps
 });
 
 interface Ticket {
@@ -52,6 +53,7 @@ interface Ticket {
   customer_name: string | null;
   customer_whatsapp: string | null;
   resolved_at: string | null;
+  resolution_steps: string | null; // New field in interface
 }
 
 const TicketDetail = () => {
@@ -92,6 +94,7 @@ const TicketDetail = () => {
       status: 'open',
       priority: 'medium',
       description: '',
+      resolution_steps: '', // Initialize new field
     },
   });
 
@@ -102,6 +105,7 @@ const TicketDetail = () => {
         status: ticket.status,
         priority: ticket.priority,
         description: ticket.description || '',
+        resolution_steps: ticket.resolution_steps || '', // Reset new field
       });
     }
   }, [ticket, form]); // Depend on ticket and form instance
@@ -116,6 +120,7 @@ const TicketDetail = () => {
           status: updatedData.status,
           priority: updatedData.priority,
           description: updatedData.description,
+          resolution_steps: updatedData.resolution_steps, // Include new field in update
           resolved_at: updatedData.status === 'resolved' ? new Date().toISOString() : null,
         })
         .eq('id', id)
@@ -239,11 +244,20 @@ const TicketDetail = () => {
             </p>
           </div>
 
+          {ticket.resolution_steps && (
+            <div>
+              <h3 className="text-lg font-semibold mb-2">Langkah Penyelesaian</h3>
+              <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                {ticket.resolution_steps}
+              </p>
+            </div>
+          )}
+
           {canManageTickets && (
             <Card className="mt-8 bg-gray-50 dark:bg-gray-800">
               <CardHeader>
                 <CardTitle className="text-xl">Perbarui Tiket</CardTitle>
-                <CardDescription>Ubah status, prioritas, atau deskripsi tiket ini.</CardDescription>
+                <CardDescription>Ubah status, prioritas, deskripsi, atau langkah penyelesaian tiket ini.</CardDescription>
               </CardHeader>
               <CardContent>
                 <Form {...form}>
@@ -304,6 +318,19 @@ const TicketDetail = () => {
                           <FormLabel>Deskripsi</FormLabel>
                           <FormControl>
                             <Textarea placeholder="Perbarui deskripsi tiket" rows={5} {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="resolution_steps"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Langkah Penyelesaian (Opsional)</FormLabel>
+                          <FormControl>
+                            <Textarea placeholder="Catat langkah-langkah yang diambil untuk menyelesaikan tiket ini" rows={5} {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
