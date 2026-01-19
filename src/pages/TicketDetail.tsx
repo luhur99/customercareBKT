@@ -67,6 +67,11 @@ interface Ticket {
   category: typeof COMPLAINT_CATEGORIES[number]; // New field in interface
 }
 
+interface UserProfile {
+  first_name: string | null;
+  last_name: string | null;
+}
+
 const TicketDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -96,6 +101,29 @@ const TicketDetail = () => {
       return data;
     },
     enabled: !!session && !!id,
+  });
+
+  // Fetch creator's profile
+  const { data: creatorProfile, isLoading: isCreatorProfileLoading } = useQuery<UserProfile, Error>({
+    queryKey: ['creatorProfile', ticket?.created_by],
+    queryFn: async () => {
+      if (!ticket?.created_by) throw new Error('Creator ID is missing.');
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('first_name, last_name')
+        .eq('id', ticket.created_by)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') { // No rows found
+          return { first_name: null, last_name: null };
+        }
+        throw new Error(error.message);
+      }
+      return data;
+    },
+    enabled: !!ticket?.created_by,
+    staleTime: 5 * 60 * 1000, // Cache profile for 5 minutes
   });
 
   // Initialize form with ticket data
@@ -163,7 +191,7 @@ const TicketDetail = () => {
   const canManageTickets = role === 'admin' || role === 'customer_service';
   const canViewTicket = isCreator || canManageTickets;
 
-  if (loading || isLoading) {
+  if (loading || isLoading || isCreatorProfileLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
@@ -208,6 +236,8 @@ const TicketDetail = () => {
       ? 'bg-red-100 text-red-800'
       : 'bg-gray-100 text-gray-800';
 
+  const creatorName = [creatorProfile?.first_name, creatorProfile?.last_name].filter(Boolean).join(' ') || 'Pengguna Tidak Dikenal';
+
   return (
     <div className="container mx-auto p-4">
       <Button variant="ghost" onClick={() => navigate(-1)} className="mb-6">
@@ -227,7 +257,7 @@ const TicketDetail = () => {
               <h3 className="text-lg font-semibold mb-2">Detail Pelanggan</h3>
               <p><strong>Nama:</strong> {ticket.customer_name || '-'}</p>
               <p><strong>WhatsApp:</strong> {ticket.customer_whatsapp || '-'}</p>
-              <p><strong>Dibuat Oleh:</strong> {ticket.created_by}</p>
+              <p><strong>Dibuat Oleh:</strong> {creatorName}</p>
             </div>
             <div>
               <h3 className="text-lg font-semibold mb-2">Status & Prioritas</h3>
