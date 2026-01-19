@@ -452,14 +452,17 @@ const TicketDetail = () => {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Ditugaskan Kepada</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value || ''}>
+                          <Select 
+                            onValueChange={(value) => field.onChange(value === "unassigned" ? null : value)} 
+                            defaultValue={field.value || "unassigned"}
+                          >
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder="Pilih agen" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="">Belum Ditugaskan</SelectItem> {/* Option to unassign */}
+                              <SelectItem value="unassigned">Belum Ditugaskan</SelectItem> {/* Changed value to "unassigned" */}
                               {assignableUsers?.map((agent) => (
                                 <SelectItem key={agent.id} value={agent.id}>
                                   {[agent.first_name, agent.last_name].filter(Boolean).join(' ') || agent.email}
