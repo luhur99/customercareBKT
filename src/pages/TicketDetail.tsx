@@ -28,12 +28,11 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
-import { getSlaStatus } from '@/utils/sla'; // Import the SLA utility
+import { getSlaStatus } from '@/utils/sla';
 
-// Define ticket status and priority enums
 const TICKET_STATUSES = ['open', 'in_progress', 'resolved', 'closed'] as const;
 const TICKET_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
-const COMPLAINT_CATEGORIES = [ // Re-define categories for consistency
+const COMPLAINT_CATEGORIES = [
   'Technical Issue',
   'Billing Inquiry',
   'Service Interruption',
@@ -42,14 +41,12 @@ const COMPLAINT_CATEGORIES = [ // Re-define categories for consistency
   'Other',
 ] as const;
 
-// Form schema for updating a ticket
 const updateTicketFormSchema = z.object({
   status: z.enum(TICKET_STATUSES, { message: 'Please select a valid status.' }),
-  // priority: z.enum(TICKET_PRIORITIES, { message: 'Please select a valid priority.' }), // Prioritas dihapus dari skema
-  description: z.string().optional(), // Allow description to be updated
-  resolution_steps: z.string().optional(), // New field for resolution steps
-  category: z.enum(COMPLAINT_CATEGORIES, { message: 'Kategori keluhan diperlukan.' }), // Allow category to be updated
-  assigned_to: z.string().nullable().optional(), // New field for assigned_to
+  description: z.string().optional(),
+  resolution_steps: z.string().optional(),
+  category: z.enum(COMPLAINT_CATEGORIES, { message: 'Kategori keluhan diperlukan.' }),
+  assigned_to: z.string().nullable().optional(),
 });
 
 interface Ticket {
@@ -67,12 +64,8 @@ interface Ticket {
   resolved_at: string | null;
   resolution_steps: string | null;
   category: typeof COMPLAINT_CATEGORIES[number];
-  assigned_to_profile: { first_name: string | null; last_name: string | null; email: string | null; } | null; // For displaying assigned agent's name
-}
-
-interface UserProfile {
-  first_name: string | null;
-  last_name: string | null;
+  assigned_to_profile: { first_name: string | null; last_name: string | null; email: string | null; } | null;
+  creator_profile: { first_name: string | null; last_name: string | null; email: string | null; } | null;
 }
 
 interface AssignableUser {
@@ -88,7 +81,6 @@ const TicketDetail = () => {
   const { session, loading, role, user } = useSession();
   const queryClient = useQueryClient();
 
-  // Redirect if not logged in or not authorized
   useEffect(() => {
     if (!loading && !session) {
       showError('Anda perlu masuk untuk melihat detail tiket.');
@@ -96,14 +88,18 @@ const TicketDetail = () => {
     }
   }, [session, loading, navigate]);
 
-  // Fetch ticket details
   const { data: ticket, isLoading, error } = useQuery<Ticket, Error>({
     queryKey: ['ticket', id],
     queryFn: async () => {
       if (!id) throw new Error('Ticket ID is missing.');
       const { data, error } = await supabase
         .from('tickets')
-        .select('*, ticket_number, assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email)') // Explicitly specify the foreign key
+        .select(`
+          *,
+          ticket_number,
+          assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email),
+          creator_profile:profiles!tickets_created_by_fkey(first_name, last_name, email)
+        `)
         .eq('id', id)
         .single();
 
@@ -113,75 +109,46 @@ const TicketDetail = () => {
     enabled: !!session && !!id,
   });
 
-  // Fetch creator's profile
-  const { data: creatorProfile, isLoading: isCreatorProfileLoading } = useQuery<UserProfile, Error>({
-    queryKey: ['creatorProfile', ticket?.created_by],
-    queryFn: async () => {
-      if (!ticket?.created_by) throw new Error('Creator ID is missing.');
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('first_name, last_name')
-        .eq('id', ticket.created_by)
-        .single();
-
-      if (error) {
-        if (error.code === 'PGRST116') { // No rows found
-          return { first_name: null, last_name: null };
-        }
-        throw new Error(error.message);
-      }
-      return data;
-    },
-    enabled: !!ticket?.created_by,
-    staleTime: 5 * 60 * 1000, // Cache profile for 5 minutes
-  });
-
   const canManageTickets = role === 'admin' || role === 'customer_service';
 
-  // Fetch assignable users (admin and customer_service roles)
   const { data: assignableUsers, isLoading: isAssignableUsersLoading } = useQuery<AssignableUser[], Error>({
     queryKey: ['assignableUsers'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('profiles')
         .select('id, first_name, last_name, email')
-        .in('role', ['admin', 'customer_service']); // Fetch users with these roles
+        .in('role', ['admin', 'customer_service']);
 
       if (error) throw new Error(error.message);
       return data;
     },
-    enabled: canManageTickets, // Only fetch if the current user can manage tickets
-    staleTime: 10 * 60 * 1000, // Cache assignable users for 10 minutes
+    enabled: canManageTickets,
+    staleTime: 10 * 60 * 1000,
   });
 
-  // Initialize form with ticket data
   const form = useForm<z.infer<typeof updateTicketFormSchema>>({
     resolver: zodResolver(updateTicketFormSchema),
-    defaultValues: { // Use defaultValues
+    defaultValues: {
       status: 'open',
-      // priority: 'medium', // Prioritas dihapus dari defaultValues
       description: '',
       resolution_steps: '',
       category: 'General Inquiry',
-      assigned_to: null, // Initialize new field
+      assigned_to: null,
     },
   });
 
-  // Reset form values when ticket data is loaded or changes
   useEffect(() => {
     if (ticket) {
       form.reset({
         status: ticket.status,
-        // priority: ticket.priority, // Prioritas dihapus dari reset
         description: ticket.description || '',
         resolution_steps: ticket.resolution_steps || '',
         category: ticket.category,
-        assigned_to: ticket.assigned_to, // Reset new field
+        assigned_to: ticket.assigned_to,
       });
     }
-  }, [ticket, form]); // Depend on ticket and form instance
+  }, [ticket, form]);
 
-  // Mutation for updating ticket
   const updateTicketMutation = useMutation<any, Error, z.infer<typeof updateTicketFormSchema>>({
     mutationFn: async (updatedData) => {
       if (!id) throw new Error('Ticket ID is missing.');
@@ -189,7 +156,6 @@ const TicketDetail = () => {
       const currentTicket = queryClient.getQueryData<Ticket>(['ticket', id]);
       let newResolvedAt = currentTicket?.resolved_at;
 
-      // Logic to set/clear resolved_at timestamp
       if (updatedData.status === 'resolved' && currentTicket?.status !== 'resolved') {
         newResolvedAt = new Date().toISOString();
       } else if (updatedData.status !== 'resolved' && currentTicket?.status === 'resolved') {
@@ -200,15 +166,18 @@ const TicketDetail = () => {
         .from('tickets')
         .update({
           status: updatedData.status,
-          // priority: updatedData.priority, // Prioritas dihapus dari payload update
           description: updatedData.description,
           resolution_steps: updatedData.resolution_steps,
           category: updatedData.category,
-          assigned_to: updatedData.assigned_to, // Include assigned_to
-          resolved_at: newResolvedAt, // Use the calculated resolved_at
+          assigned_to: updatedData.assigned_to,
+          resolved_at: newResolvedAt,
         })
         .eq('id', id)
-        .select('*, assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email)') // Re-fetch assigned_to_profile with explicit FK
+        .select(`
+          *,
+          assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email),
+          creator_profile:profiles!tickets_created_by_fkey(first_name, last_name, email)
+        `)
         .single();
 
       if (error) throw new Error(error.message);
@@ -217,8 +186,8 @@ const TicketDetail = () => {
     onSuccess: () => {
       showSuccess('Tiket berhasil diperbarui!');
       queryClient.invalidateQueries({ queryKey: ['ticket', id] });
-      queryClient.invalidateQueries({ queryKey: ['tickets'] }); // Invalidate list as well
-      queryClient.invalidateQueries({ queryKey: ['dashboardTickets'] }); // Invalidate dashboard tickets
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboardTickets'] });
     },
     onError: (err) => {
       showError(`Gagal memperbarui tiket: ${err.message}`);
@@ -229,11 +198,10 @@ const TicketDetail = () => {
     updateTicketMutation.mutate(values);
   };
 
-  // Check if the current user is the creator of the ticket
   const isCreator = user?.id === ticket?.created_by;
   const canViewTicket = isCreator || canManageTickets;
 
-  if (loading || isLoading || isCreatorProfileLoading || isAssignableUsersLoading) {
+  if (loading || isLoading || isAssignableUsersLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
@@ -270,7 +238,7 @@ const TicketDetail = () => {
     );
   }
 
-  const slaStatus = getSlaStatus(ticket.created_at, ticket.resolved_at, ticket.status); // Pass status
+  const slaStatus = getSlaStatus(ticket.created_at, ticket.resolved_at, ticket.status);
   const slaBadgeClass =
     slaStatus === 'green'
       ? 'bg-green-100 text-green-800'
@@ -278,7 +246,10 @@ const TicketDetail = () => {
       ? 'bg-yellow-100 text-yellow-800'
       : 'bg-red-100 text-red-800';
 
-  const creatorName = [creatorProfile?.first_name, creatorProfile?.last_name].filter(Boolean).join(' ') || 'Pengguna Tidak Dikenal';
+  const creatorName = ticket.creator_profile
+    ? [ticket.creator_profile.first_name, ticket.creator_profile.last_name].filter(Boolean).join(' ') || ticket.creator_profile.email
+    : 'Pengguna Tidak Dikenal';
+
   const assignedAgentName = ticket.assigned_to_profile 
     ? [ticket.assigned_to_profile.first_name, ticket.assigned_to_profile.last_name].filter(Boolean).join(' ') || ticket.assigned_to_profile.email 
     : 'Belum Ditugaskan';
@@ -302,7 +273,7 @@ const TicketDetail = () => {
               <h3 className="text-lg font-semibold mb-2">Detail Pelanggan</h3>
               <p><strong>Nama:</strong> {ticket.customer_name || '-'}</p>
               <p><strong>WhatsApp:</strong> {ticket.customer_whatsapp || '-'}</p>
-              <p><strong>Dibuat Oleh:</strong> {creatorName}</p>
+              <p><strong>Dibuat Oleh:</strong> <span className="font-medium text-gray-900 dark:text-white">{creatorName}</span></p>
             </div>
             <div>
               <h3 className="text-lg font-semibold mb-2">Status & Prioritas</h3>
@@ -422,33 +393,6 @@ const TicketDetail = () => {
                         </FormItem>
                       )}
                     />
-                    {/* Prioritas dihapus dari formulir */}
-                    {/*
-                    <FormField
-                      control={form.control}
-                      name="priority"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Prioritas</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Pilih prioritas" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {TICKET_PRIORITIES.map((p) => (
-                                <SelectItem key={p} value={p}>
-                                  {p.charAt(0).toUpperCase() + p.slice(1)}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    */}
                     <FormField
                       control={form.control}
                       name="assigned_to"
@@ -465,7 +409,7 @@ const TicketDetail = () => {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="unassigned">Belum Ditugaskan</SelectItem> {/* Changed value to "unassigned" */}
+                              <SelectItem value="unassigned">Belum Ditugaskan</SelectItem>
                               {assignableUsers?.map((agent) => (
                                 <SelectItem key={agent.id} value={agent.id}>
                                   {[agent.first_name, agent.last_name].filter(Boolean).join(' ') || agent.email}
