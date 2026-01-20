@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, Ticket as TicketIcon, Users, CheckCircle, Eye } from 'lucide-react'; // Added Eye icon
+import { Loader2, Ticket as TicketIcon, CheckCircle, Eye } from 'lucide-react';
 
 import { useSession } from '@/components/SessionContextProvider';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,9 @@ import {
 } from '@/components/ui/table';
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
-import { getSlaStatus } from '@/utils/sla'; // Import getSlaStatus
+import { getSlaStatus } from '@/utils/sla';
+import SlaPerformanceChart from '@/components/SlaPerformanceChart'; // Import new chart component
+import ResolvedTicketsChart from '@/components/ResolvedTicketsChart'; // Import new chart component
 
 interface Ticket {
   id: string;
@@ -96,7 +98,7 @@ const Dashboard = () => {
     enabled: !!session && (role === 'admin' || role === 'customer_service') && !!user?.id,
   });
 
-  // Query for profiles (for admin/customer_service to see agents)
+  // Query for profiles (for admin/customer_service to see agents) - still needed for agent count if desired elsewhere
   const { data: profiles, isLoading: isLoadingProfiles } = useQuery<Profile[], Error>({
     queryKey: ['profiles'],
     queryFn: async () => {
@@ -105,9 +107,10 @@ const Dashboard = () => {
       return data;
     },
     enabled: !!session && (role === 'admin' || role === 'customer_service'),
+    staleTime: 10 * 60 * 1000, // Cache for 10 minutes
   });
 
-  // NEW: Query for the 15 latest tickets
+  // Query for the 15 latest tickets
   const { data: latestTickets, isLoading: isLoadingLatestTickets } = useQuery<Ticket[], Error>({
     queryKey: ['latestTickets'],
     queryFn: async () => {
@@ -155,7 +158,7 @@ const Dashboard = () => {
           </CardContent>
         </Card>
 
-        {/* NEW CARD: Tiket Diselesaikan Oleh Saya */}
+        {/* Card: Tiket Diselesaikan Oleh Saya */}
         {(role === 'admin' || role === 'customer_service') && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -172,23 +175,18 @@ const Dashboard = () => {
           </Card>
         )}
 
-        {/* Card for Total Agents */}
+        {/* NEW: SLA Performance Chart */}
         {(role === 'admin' || role === 'customer_service') && (
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Agen</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {profiles?.filter(p => p.role === 'admin' || p.role === 'customer_service').length}
-              </div>
-            </CardContent>
-          </Card>
+          <SlaPerformanceChart />
+        )}
+
+        {/* NEW: Resolved Tickets Percentage Chart */}
+        {(role === 'admin' || role === 'customer_service') && (
+          <ResolvedTicketsChart />
         )}
       </div>
 
-      {/* NEW: Latest 15 Tickets List */}
+      {/* Latest 15 Tickets List */}
       {(role === 'admin' || role === 'customer_service') && (
         <Card>
           <CardHeader>
