@@ -203,13 +203,13 @@ const Dashboard = () => {
                     <TableHead>Status</TableHead>
                     <TableHead>Ditugaskan Kepada</TableHead>
                     <TableHead>SLA</TableHead>
-                    <TableHead className="text-right">Aksi</TableHead>
+                    {/* Removed Aksi column */}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {latestTickets?.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={6} className="text-center py-8 text-gray-500"> {/* Adjusted colSpan */}
                         Tidak ada tiket terbaru yang ditemukan.
                       </TableCell>
                     </TableRow>
@@ -248,14 +248,7 @@ const Dashboard = () => {
                               {slaStatus}
                             </span>
                           </TableCell>
-                          <TableCell className="text-right">
-                            <Link to={`/tickets/${ticket.id}`}>
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                <Eye className="h-4 w-4" />
-                                <span className="sr-only">Lihat Detail</span>
-                              </Button>
-                            </Link>
-                          </TableCell>
+                          {/* Removed Aksi column content */}
                         </TableRow>
                       );
                     })
