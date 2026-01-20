@@ -112,8 +112,11 @@ const Layout = ({ children }: LayoutProps) => {
               {session && (role === 'admin' || role === 'customer_service') && (
                 <Link to="/tickets" className="text-sm font-medium text-gray-700 hover:text-primary transition-colors">Tickets</Link>
               )}
-              {session && (role === 'sales' || role === 'admin' || role === 'customer_service') && ( // Updated rule here
+              {session && (role === 'sales' || role === 'admin' || role === 'customer_service') && (
                 <Link to="/submit-complaint" className="text-sm font-medium text-gray-700 hover:text-primary transition-colors">Ajukan Keluhan</Link>
+              )}
+              {session && role === 'admin' && ( // NEW: Manage Roles link for admin
+                <Link to="/manage-roles" className="text-sm font-medium text-gray-700 hover:text-primary transition-colors">Manage Roles</Link>
               )}
             </nav>
           </div>
