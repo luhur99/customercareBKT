@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, Ticket as TicketIcon, CheckCircle, UserCheck, TrendingUp, Eye, Percent } from 'lucide-react'; // Added Percent icon
+import { Loader2, Ticket as TicketIcon, CheckCircle, UserCheck, TrendingUp, Eye, PieChart } from 'lucide-react'; // Changed Percent to PieChart
 
 import { useSession } from '@/components/SessionContextProvider';
 import { Button } from '@/components/ui/button';
@@ -163,9 +163,9 @@ const Dashboard = () => {
     enabled: !!session && (role === 'admin' || role === 'customer_service'),
   });
 
-  // NEW Query: Calculate Resolved Tickets Percentage
-  const { data: resolvedTicketsPercentage, isLoading: isLoadingResolvedTicketsPercentage } = useQuery<number, Error>({
-    queryKey: ['resolvedTicketsPercentage'],
+  // NEW Query: Calculate Ticket Status Percentages (Open, In Progress, Resolved)
+  const { data: ticketStatusPercentages, isLoading: isLoadingTicketStatusPercentages } = useQuery<{ open: number; inProgress: number; resolved: number }, Error>({
+    queryKey: ['ticketStatusPercentages'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('tickets')
@@ -174,16 +174,23 @@ const Dashboard = () => {
       if (error) throw new Error(error.message);
 
       const totalTickets = data.length;
-      if (totalTickets === 0) return 0;
+      if (totalTickets === 0) return { open: 0, inProgress: 0, resolved: 0 };
 
-      const resolvedCount = data.filter(ticket => ticket.status === 'resolved' || ticket.status === 'closed').length;
-      return (resolvedCount / totalTickets) * 100;
+      const openCount = data.filter(ticket => ticket.status === 'open').length;
+      const inProgressCount = data.filter(ticket => ticket.status === 'in_progress').length;
+      const resolvedCount = data.filter(ticket => ticket.status === 'resolved' || ticket.status === 'closed').length; // Consider 'closed' as resolved
+
+      return {
+        open: (openCount / totalTickets) * 100,
+        inProgress: (inProgressCount / totalTickets) * 100,
+        resolved: (resolvedCount / totalTickets) * 100,
+      };
     },
     enabled: !!session && (role === 'admin' || role === 'customer_service'),
   });
 
 
-  if (loading || isLoadingAllTickets || isLoadingActiveTickets || isLoadingProfiles || isLoadingResolvedTicketsByAgent || isLoadingLatestTickets || isLoadingAssignedActiveTickets || isLoadingSlaPerformance || isLoadingResolvedTicketsPercentage) {
+  if (loading || isLoadingAllTickets || isLoadingActiveTickets || isLoadingProfiles || isLoadingResolvedTicketsByAgent || isLoadingLatestTickets || isLoadingAssignedActiveTickets || isLoadingSlaPerformance || isLoadingTicketStatusPercentages) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
@@ -266,22 +273,36 @@ const Dashboard = () => {
           </Card>
         )}
 
-        {/* NEW Card: Resolved Tickets Percentage */}
+        {/* NEW Card: Ticket Status Percentages */}
         {(role === 'admin' || role === 'customer_service') && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
-                Tiket Diselesaikan
+                Status Tiket
               </CardTitle>
-              <Percent className="h-4 w-4 text-muted-foreground" />
+              <PieChart className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                {resolvedTicketsPercentage !== undefined ? `${resolvedTicketsPercentage.toFixed(1)}%` : 'N/A'}
+              <div className="grid grid-cols-1 gap-2 text-sm">
+                <div className="flex justify-between">
+                  <span>Open:</span>
+                  <span className="font-bold">
+                    {ticketStatusPercentages?.open !== undefined ? `${ticketStatusPercentages.open.toFixed(1)}%` : 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>In Progress:</span>
+                  <span className="font-bold">
+                    {ticketStatusPercentages?.inProgress !== undefined ? `${ticketStatusPercentages.inProgress.toFixed(1)}%` : 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Resolved:</span>
+                  <span className="font-bold">
+                    {ticketStatusPercentages?.resolved !== undefined ? `${ticketStatusPercentages.resolved.toFixed(1)}%` : 'N/A'}
+                  </span>
+                </div>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Dari total tiket
-              </p>
             </CardContent>
           </Card>
         )}
