@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, Ticket as TicketIcon, CheckCircle, Eye, UserCheck } from 'lucide-react'; // Added UserCheck icon
+import { Loader2, Ticket as TicketIcon, CheckCircle, UserCheck, TrendingUp, Eye } from 'lucide-react'; // Added Eye icon
 
 import { useSession } from '@/components/SessionContextProvider';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,6 @@ import {
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getSlaStatus } from '@/utils/sla';
-import SlaPerformanceChart from '@/components/SlaPerformanceChart';
 import ResolvedTicketsChart from '@/components/ResolvedTicketsChart';
 
 interface Ticket {
@@ -98,7 +97,7 @@ const Dashboard = () => {
     enabled: !!session && (role === 'admin' || role === 'customer_service') && !!user?.id,
   });
 
-  // NEW Query: Tickets assigned to the current agent that are still active
+  // Query: Tickets assigned to the current agent that are still active
   const { data: assignedActiveTicketsCount, isLoading: isLoadingAssignedActiveTickets } = useQuery<number, Error>({
     queryKey: ['assignedActiveTicketsCount', user?.id],
     queryFn: async () => {
@@ -146,7 +145,27 @@ const Dashboard = () => {
     enabled: !!session && (role === 'admin' || role === 'customer_service'),
   });
 
-  if (loading || isLoadingAllTickets || isLoadingActiveTickets || isLoadingProfiles || isLoadingResolvedTicketsByAgent || isLoadingLatestTickets || isLoadingAssignedActiveTickets) {
+  // NEW Query: Calculate SLA Performance Percentage
+  const { data: slaPerformancePercentage, isLoading: isLoadingSlaPerformance } = useQuery<number, Error>({
+    queryKey: ['slaPerformancePercentage'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('tickets')
+        .select('created_at, resolved_at, status');
+
+      if (error) throw new Error(error.message);
+
+      const totalTickets = data.length;
+      if (totalTickets === 0) return 0;
+
+      const slaMetTickets = data.filter(ticket => getSlaStatus(ticket.created_at, ticket.resolved_at, ticket.status) === 'green').length;
+      return (slaMetTickets / totalTickets) * 100;
+    },
+    enabled: !!session && (role === 'admin' || role === 'customer_service'),
+  });
+
+
+  if (loading || isLoadingAllTickets || isLoadingActiveTickets || isLoadingProfiles || isLoadingResolvedTicketsByAgent || isLoadingLatestTickets || isLoadingAssignedActiveTickets || isLoadingSlaPerformance) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
@@ -192,7 +211,7 @@ const Dashboard = () => {
           </Card>
         )}
 
-        {/* NEW Card: Tiket Ditugaskan Kepada Saya */}
+        {/* Card: Tiket Ditugaskan Kepada Saya */}
         {(role === 'admin' || role === 'customer_service') && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -209,9 +228,24 @@ const Dashboard = () => {
           </Card>
         )}
 
-        {/* SLA Performance Chart */}
+        {/* NEW Card: SLA Performance Percentage */}
         {(role === 'admin' || role === 'customer_service') && (
-          <SlaPerformanceChart />
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">
+                Performa SLA
+              </CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {slaPerformancePercentage !== undefined ? `${slaPerformancePercentage.toFixed(1)}%` : 'N/A'}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Tiket yang diselesaikan tepat waktu
+              </p>
+            </CardContent>
+          </Card>
         )}
 
         {/* Resolved Tickets Percentage Chart */}
@@ -237,13 +271,13 @@ const Dashboard = () => {
                     <TableHead>Status</TableHead>
                     <TableHead>Ditugaskan Kepada</TableHead>
                     <TableHead>SLA</TableHead>
-                    <TableHead className="text-right">Aksi</TableHead> {/* Re-added Aksi column header */}
+                    <TableHead className="text-right">Aksi</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {latestTickets?.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-gray-500"> {/* Adjusted colSpan to 7 */}
+                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
                         Tidak ada tiket terbaru yang ditemukan.
                       </TableCell>
                     </TableRow>
@@ -304,14 +338,13 @@ const Dashboard = () => {
                             </span>
                           </TableCell>
                           <TableCell className="text-right">
-                            {user?.id === ticket.created_by && ( // Conditionally render action button
-                              <Link to={`/tickets/${ticket.id}`}>
-                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                  <Eye className="h-4 w-4" />
-                                  <span className="sr-only">Lihat Detail</span>
-                                </Button>
-                              </Link>
-                            )}
+                            {/* The Eye icon is now correctly imported */}
+                            <Link to={`/tickets/${ticket.id}`}>
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                <Eye className="h-4 w-4" />
+                                <span className="sr-only">Lihat Detail</span>
+                              </Button>
+                            </Link>
                           </TableCell>
                         </TableRow>
                       );
