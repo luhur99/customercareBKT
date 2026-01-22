@@ -303,7 +303,6 @@ const ManageRoles = () => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Nama</TableHead> {/* NEW: Combined Name column */}
                 <TableHead>Email</TableHead>
                 <TableHead>First Name</TableHead>
                 <TableHead>Last Name</TableHead>
@@ -312,36 +311,32 @@ const ManageRoles = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users?.map((user) => {
-                const displayName = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || user.id;
-                return (
-                  <TableRow key={user.id}>
-                    <TableCell className="font-medium">{displayName}</TableCell> {/* Display combined name */}
-                    <TableCell>{user.email}</TableCell>
-                    <TableCell>{user.first_name || '-'}</TableCell>
-                    <TableCell>{user.last_name || '-'}</TableCell>
-                    <TableCell>
-                      <Select
-                        value={user.role}
-                        onValueChange={(newRole: UserRole) => handleRoleChange(user.id, newRole)}
-                        disabled={updateUserRoleMutation.isPending}
-                      >
-                        <SelectTrigger className="w-[180px]">
-                          <SelectValue placeholder="Select role" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {USER_ROLES.map((r) => (
-                              <SelectItem key={r} value={r}>
-                                {r.replace('_', ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                    <TableCell>{new Date(user.created_at).toLocaleDateString()}</TableCell>
-                  </TableRow>
-                );
-              })}
+              {users?.map((user) => (
+                <TableRow key={user.id}>
+                  <TableCell className="font-medium">{user.email}</TableCell>
+                  <TableCell>{user.first_name || '-'}</TableCell>
+                  <TableCell>{user.last_name || '-'}</TableCell>
+                  <TableCell>
+                    <Select
+                      value={user.role}
+                      onValueChange={(newRole: UserRole) => handleRoleChange(user.id, newRole)}
+                      disabled={updateUserRoleMutation.isPending}
+                    >
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Select role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                          {USER_ROLES.map((r) => (
+                            <SelectItem key={r} value={r}>
+                              {r.replace('_', ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell>{new Date(user.created_at).toLocaleDateString()}</TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         </div>
