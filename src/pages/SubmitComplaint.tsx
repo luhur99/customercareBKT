@@ -90,12 +90,14 @@ const SubmitComplaint = () => {
     setSelectedFiles((prevFiles) => prevFiles.filter((_, index) => index !== indexToRemove));
   };
 
-  const uploadFiles = async (files: File[], ticketId: string): Promise<string[]> => {
+  // Updated uploadFiles function to use userId and ticketId in the path
+  const uploadFiles = async (files: File[], userId: string, ticketId: string): Promise<string[]> => {
     setIsUploadingFiles(true);
     const uploadedFileUrls: string[] = [];
     for (const file of files) {
       const fileExtension = file.name.split('.').pop();
-      const filePath = `${ticketId}/${Date.now()}-${Math.random().toString(36).substring(2, 15)}.${fileExtension}`;
+      // Path structure: userId/ticketId/timestamp-random.extension
+      const filePath = `${userId}/${ticketId}/${Date.now()}-${Math.random().toString(36).substring(2, 15)}.${fileExtension}`;
       const { data, error } = await supabase.storage
         .from('ticket-attachments')
         .upload(filePath, file, {
@@ -161,19 +163,13 @@ const SubmitComplaint = () => {
     try {
       let uploadedUrls: string[] = [];
       if (selectedFiles.length > 0) {
-        // Generate a temporary ID for file paths if needed, or handle after ticket creation
-        // For simplicity, let's assume we can upload first and then link.
-        // A better approach might be to create the ticket first, get its ID, then upload.
-        // For now, we'll upload and then submit. If upload fails, ticket won't be created.
-        // If we need ticket ID for file path, we'd need a two-step process or a generic path.
-        // Let's use a generic path for now, and if ticket ID is needed, we can refactor.
-        // For now, I'll use a placeholder 'temp-ticket' and update if a real ticket ID is needed for storage path.
-        // A more robust solution would be to create the ticket first, then upload files using the ticket ID.
-        // Given the current mutation structure, I'll upload files first.
-        // The `uploadFiles` function now takes a `ticketId` to structure paths.
-        // Since we don't have a ticket ID yet, we'll generate a UUID for the folder.
-        const tempTicketId = crypto.randomUUID(); // Generate a UUID for the folder
-        uploadedUrls = await uploadFiles(selectedFiles, tempTicketId);
+        if (!user?.id) {
+          showError('Pengguna tidak terautentikasi untuk mengunggah file.');
+          return;
+        }
+        // Generate a temporary ticket ID for the folder structure within the user's folder
+        const tempTicketIdForFolder = crypto.randomUUID();
+        uploadedUrls = await uploadFiles(selectedFiles, user.id, tempTicketIdForFolder);
       }
       submitComplaintMutation.mutate({ formData: values, attachments: uploadedUrls });
     } catch (error) {
