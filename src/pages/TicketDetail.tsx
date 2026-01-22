@@ -94,6 +94,7 @@ const TicketDetail = () => {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<string[]>([]);
   const [isUploadingFiles, setIsUploadingFiles] = useState(false);
+  const [signedAttachmentUrls, setSignedAttachmentUrls] = useState<Record<string, string>>({}); // State untuk menyimpan signed URLs
 
   useEffect(() => {
     if (!loading && !session) {
@@ -181,6 +182,38 @@ const TicketDetail = () => {
       setExistingAttachments(ticket.attachments || []); // Inisialisasi existingAttachments
     }
   }, [ticket, form]);
+
+  // Effect untuk menghasilkan signed URLs saat existingAttachments berubah
+  useEffect(() => {
+    const generateSignedUrls = async () => {
+      const newSignedUrls: Record<string, string> = {};
+      for (const fileUrl of existingAttachments) {
+        // Ekstrak filePath dari public URL yang disimpan
+        const urlParts = fileUrl.split('/public/ticket-attachments/');
+        if (urlParts.length > 1) {
+          const filePath = urlParts[1];
+          const { data, error } = await supabase.storage
+            .from('ticket-attachments')
+            .createSignedUrl(filePath, 60 * 60); // URL berlaku selama 1 jam (3600 detik)
+          if (error) {
+            console.error('Error creating signed URL:', error);
+            newSignedUrls[fileUrl] = '#'; // Fallback ke '#' jika gagal
+          } else if (data?.signedUrl) {
+            newSignedUrls[fileUrl] = data.signedUrl;
+          }
+        } else {
+          newSignedUrls[fileUrl] = '#'; // Fallback jika URL tidak valid
+        }
+      }
+      setSignedAttachmentUrls(newSignedUrls);
+    };
+
+    if (existingAttachments.length > 0) {
+      generateSignedUrls();
+    } else {
+      setSignedAttachmentUrls({});
+    }
+  }, [existingAttachments]); // Regenerate when existingAttachments change
 
   // Fungsi untuk mengunggah file ke Supabase Storage
   const uploadFiles = async (files: File[], userId: string, ticketId: string): Promise<string[]> => {
@@ -722,7 +755,7 @@ const TicketDetail = () => {
                   {existingAttachments.map((fileUrl, index) => (
                     <div key={index} className="flex items-center justify-between p-2 border rounded-md text-sm">
                       <a
-                        href={fileUrl}
+                        href={signedAttachmentUrls[fileUrl] || '#'}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-blue-600 hover:underline dark:text-blue-400 flex-1 truncate"
