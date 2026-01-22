@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, Ticket as TicketIcon, CheckCircle, UserCheck, TrendingUp, Eye } from 'lucide-react'; // Added Eye icon
+import { Loader2, Ticket as TicketIcon, CheckCircle, UserCheck, TrendingUp, Eye, Percent } from 'lucide-react'; // Added Percent icon
 
 import { useSession } from '@/components/SessionContextProvider';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,6 @@ import {
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getSlaStatus } from '@/utils/sla';
-import ResolvedTicketsChart from '@/components/ResolvedTicketsChart';
 
 interface Ticket {
   id: string;
@@ -145,7 +144,7 @@ const Dashboard = () => {
     enabled: !!session && (role === 'admin' || role === 'customer_service'),
   });
 
-  // NEW Query: Calculate SLA Performance Percentage
+  // Query: Calculate SLA Performance Percentage
   const { data: slaPerformancePercentage, isLoading: isLoadingSlaPerformance } = useQuery<number, Error>({
     queryKey: ['slaPerformancePercentage'],
     queryFn: async () => {
@@ -164,8 +163,27 @@ const Dashboard = () => {
     enabled: !!session && (role === 'admin' || role === 'customer_service'),
   });
 
+  // NEW Query: Calculate Resolved Tickets Percentage
+  const { data: resolvedTicketsPercentage, isLoading: isLoadingResolvedTicketsPercentage } = useQuery<number, Error>({
+    queryKey: ['resolvedTicketsPercentage'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('tickets')
+        .select('status');
 
-  if (loading || isLoadingAllTickets || isLoadingActiveTickets || isLoadingProfiles || isLoadingResolvedTicketsByAgent || isLoadingLatestTickets || isLoadingAssignedActiveTickets || isLoadingSlaPerformance) {
+      if (error) throw new Error(error.message);
+
+      const totalTickets = data.length;
+      if (totalTickets === 0) return 0;
+
+      const resolvedCount = data.filter(ticket => ticket.status === 'resolved' || ticket.status === 'closed').length;
+      return (resolvedCount / totalTickets) * 100;
+    },
+    enabled: !!session && (role === 'admin' || role === 'customer_service'),
+  });
+
+
+  if (loading || isLoadingAllTickets || isLoadingActiveTickets || isLoadingProfiles || isLoadingResolvedTicketsByAgent || isLoadingLatestTickets || isLoadingAssignedActiveTickets || isLoadingSlaPerformance || isLoadingResolvedTicketsPercentage) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
@@ -228,7 +246,7 @@ const Dashboard = () => {
           </Card>
         )}
 
-        {/* NEW Card: SLA Performance Percentage */}
+        {/* Card: SLA Performance Percentage */}
         {(role === 'admin' || role === 'customer_service') && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -248,9 +266,24 @@ const Dashboard = () => {
           </Card>
         )}
 
-        {/* Resolved Tickets Percentage Chart */}
+        {/* NEW Card: Resolved Tickets Percentage */}
         {(role === 'admin' || role === 'customer_service') && (
-          <ResolvedTicketsChart />
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">
+                Tiket Diselesaikan
+              </CardTitle>
+              <Percent className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {resolvedTicketsPercentage !== undefined ? `${resolvedTicketsPercentage.toFixed(1)}%` : 'N/A'}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Dari total tiket
+              </p>
+            </CardContent>
+          </Card>
         )}
       </div>
 
@@ -338,7 +371,6 @@ const Dashboard = () => {
                             </span>
                           </TableCell>
                           <TableCell className="text-right">
-                            {/* The Eye icon is now correctly imported */}
                             <Link to={`/tickets/${ticket.id}`}>
                               <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
                                 <Eye className="h-4 w-4" />
