@@ -375,7 +375,7 @@ const Dashboard = () => {
                   {topAgents.map((agent, index) => (
                     <div key={agent.assigned_to} className="flex justify-between items-center text-sm">
                       <span className="font-medium">
-                        {index + 1}. {[agent.first_name, agent.last_name].filter(Boolean).join(' ') || agent.email}
+                        {index + 1}. {[agent.first_name, agent.last_name].filter(Boolean).join(' ') || agent.email || agent.assigned_to}
                       </span>
                       <span className="text-gray-600 dark:text-gray-400">
                         {agent.resolved_count} Tiket
