@@ -173,16 +173,33 @@ const TicketDetail = () => {
   // Update ticket mutation
   const updateTicketMutation = useMutation<any, Error, z.infer<typeof ticketSchema>>({
     mutationFn: async (updatedTicket) => {
-      const { status, resolution_steps, ...rest } = updatedTicket;
-      const payload: any = { ...rest, status };
+      const { status: newStatusFromForm, assigned_to: newAssignedToFromForm, resolution_steps, ...rest } = updatedTicket;
 
-      if (status === 'resolved' && !ticket?.resolved_at) {
+      let finalStatus = newStatusFromForm;
+      let finalAssignedTo = newAssignedToFromForm;
+
+      // Check if assignment changed
+      const wasAssigned = ticket?.assigned_to !== null;
+      const isNowAssigned = newAssignedToFromForm !== null;
+
+      // If ticket was unassigned and is now assigned, and its status was 'open', set to 'in_progress'
+      if (!wasAssigned && isNowAssigned && ticket?.status === 'open') {
+        finalStatus = 'in_progress';
+      }
+      // If ticket was assigned and is now unassigned, and its status was 'in_progress', set to 'open'
+      else if (wasAssigned && !isNowAssigned && ticket?.status === 'in_progress') {
+        finalStatus = 'open';
+      }
+
+      const payload: any = { ...rest, status: finalStatus, assigned_to: finalAssignedTo };
+
+      if (finalStatus === 'resolved' && !ticket?.resolved_at) {
         payload.resolved_at = new Date().toISOString();
         payload.resolution_steps = resolution_steps;
-      } else if (status !== 'resolved' && ticket?.resolved_at) {
+      } else if (finalStatus !== 'resolved' && ticket?.resolved_at) {
         payload.resolved_at = null;
         payload.resolution_steps = null;
-      } else if (status === 'resolved' && ticket?.resolved_at) {
+      } else if (finalStatus === 'resolved' && ticket?.resolved_at) {
         payload.resolution_steps = resolution_steps;
       }
 
@@ -202,6 +219,7 @@ const TicketDetail = () => {
       queryClient.invalidateQueries({ queryKey: ['activeTickets'] });
       queryClient.invalidateQueries({ queryKey: ['resolvedTicketsByAgentCount'] });
       queryClient.invalidateQueries({ queryKey: ['assignedActiveTicketsCount'] });
+      queryClient.invalidateQueries({ queryKey: ['tickets'] }); // Invalidate general tickets query for tab updates
       setIsEditing(false);
     },
     onError: (error) => {
@@ -226,6 +244,7 @@ const TicketDetail = () => {
       queryClient.invalidateQueries({ queryKey: ['activeTickets'] });
       queryClient.invalidateQueries({ queryKey: ['resolvedTicketsByAgentCount'] });
       queryClient.invalidateQueries({ queryKey: ['assignedActiveTicketsCount'] });
+      queryClient.invalidateQueries({ queryKey: ['tickets'] }); // Invalidate general tickets query
       navigate('/tickets'); // Redirect to tickets list after deletion
     },
     onError: (error) => {
@@ -514,7 +533,7 @@ const TicketDetail = () => {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value={null as any}>Belum Ditugaskan</SelectItem> {/* Changed value to null */}
+                            <SelectItem value={null as any}>Belum Ditugaskan</SelectItem>
                             {agents?.map((agent) => (
                               <SelectItem key={agent.id} value={agent.id}>
                                 {[agent.first_name, agent.last_name].filter(Boolean).join(' ') || agent.email}
