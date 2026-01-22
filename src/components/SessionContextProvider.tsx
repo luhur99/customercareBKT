@@ -1,4 +1,4 @@
-import React, { useState, useEffect, createContext, useContext } from 'react';
+import React, { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -8,7 +8,7 @@ interface SessionContextType {
   session: Session | null;
   user: User | null;
   loading: boolean;
-  role: string | null; // Added role to the context type
+  role: string | null;
 }
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
@@ -17,75 +17,80 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState<string | null>(null); // State for user role
+  const [role, setRole] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
-  useEffect(() => {
-    const fetchUserProfile = async (userId: string) => {
-      console.log('Fetching user profile for userId:', userId); // Added log
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', userId)
-        .single();
+  // Memoize fetchUserProfile to prevent unnecessary re-creations
+  const fetchUserProfile = useCallback(async (userId: string) => {
+    console.log('Fetching user profile for userId:', userId);
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', userId)
+      .single();
 
-      if (error) {
-        console.error('Error fetching user profile:', error);
+    if (error) {
+      console.error('Error fetching user profile:', error);
+      setRole(null);
+    } else if (data) {
+      console.log('User role fetched:', data.role);
+      setRole(data.role);
+    }
+  }, [setRole]); // setRole is a stable setter function, supabase is an imported constant.
+
+  useEffect(() => {
+    // Handler for auth state changes
+    const handleAuthStateChange = async (event: string, currentSession: Session | null) => {
+      console.log('Auth state change event:', event, 'Session:', currentSession);
+      setSession(currentSession);
+      setUser(currentSession?.user || null);
+      setLoading(false);
+
+      if (currentSession?.user) {
+        await fetchUserProfile(currentSession.user.id);
+      } else {
         setRole(null);
-      } else if (data) {
-        console.log('User role fetched:', data.role); // Added log
-        setRole(data.role);
+      }
+
+      if (event === 'SIGNED_IN') {
+        showSuccess('Logged in successfully!');
+        if (location.pathname === '/login') {
+          console.log('Redirecting from /login to /');
+          navigate('/');
+        }
+      } else if (event === 'SIGNED_OUT') {
+        showSuccess('Logged out successfully!');
+        console.log('Redirecting to /login after sign out');
+        navigate('/login');
       }
     };
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, currentSession) => {
-        console.log('Auth state change event:', event, 'Session:', currentSession); // Added log
-        setSession(currentSession);
-        setUser(currentSession?.user || null);
-        setLoading(false);
+    // Subscribe to auth state changes
+    const { data: authListener } = supabase.auth.onAuthStateChange(handleAuthStateChange);
 
-        if (currentSession?.user) {
-          fetchUserProfile(currentSession.user.id);
-        } else {
-          setRole(null);
-        }
-
-        if (event === 'SIGNED_IN') {
-          showSuccess('Logged in successfully!');
-          if (location.pathname === '/login') {
-            console.log('Redirecting from /login to /'); // Added log
-            navigate('/'); // Redirect to home after login
-          }
-        } else if (event === 'SIGNED_OUT') {
-          showSuccess('Logged out successfully!');
-          console.log('Redirecting to /login after sign out'); // Added log
-          navigate('/login'); // Redirect to login after logout
-        }
-      }
-    );
-
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      console.log('Initial session check:', session); // Added log
-      setSession(session);
-      setUser(session?.user || null);
+    // Initial session check
+    supabase.auth.getSession().then(async ({ data: { session: initialSession } }) => {
+      console.log('Initial session check:', initialSession);
+      setSession(initialSession);
+      setUser(initialSession?.user || null);
       setLoading(false);
-      if (session?.user) {
-        await fetchUserProfile(session.user.id);
+      if (initialSession?.user) {
+        await fetchUserProfile(initialSession.user.id);
       } else {
         setRole(null);
         if (location.pathname !== '/login') {
-          console.log('No initial session, redirecting to /login'); // Added log
+          console.log('No initial session, redirecting to /login');
           navigate('/login');
         }
       }
     });
 
+    // Cleanup function to unsubscribe from auth changes
     return () => {
       authListener.subscription.unsubscribe();
     };
-  }, [navigate, location.pathname]);
+  }, [fetchUserProfile, navigate, location.pathname]); // Dependencies for useEffect
 
   return (
     <SessionContext.Provider value={{ session, user, loading, role }}>
