@@ -514,7 +514,7 @@ const TicketDetail = () => {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="null">Belum Ditugaskan</SelectItem>
+                            <SelectItem value={null as any}>Belum Ditugaskan</SelectItem> {/* Changed value to null */}
                             {agents?.map((agent) => (
                               <SelectItem key={agent.id} value={agent.id}>
                                 {[agent.first_name, agent.last_name].filter(Boolean).join(' ') || agent.email}
