@@ -1,15 +1,14 @@
-import React, { useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Loader2, ArrowLeft, MessageSquare, User, Phone, Mail, Calendar, Tag, Info, CheckCircle, XCircle, Clock, FileText, Edit, Save, Trash2 } from 'lucide-react';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2, ArrowLeft } from 'lucide-react';
 
 import { useSession } from '@/components/SessionContextProvider';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Form,
   FormControl,
@@ -18,6 +17,8 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -25,30 +26,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getSlaStatus } from '@/utils/sla';
-
-// Updated TICKET_STATUSES for agent interaction (removed 'closed')
-const TICKET_STATUSES = ['open', 'in_progress', 'resolved'] as const;
-const TICKET_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
-const COMPLAINT_CATEGORIES = [
-  'Technical Issue',
-  'Billing Inquiry',
-  'Service Interruption',
-  'Product Feedback',
-  'General Inquiry',
-  'Other',
-] as const;
-
-const updateTicketFormSchema = z.object({
-  status: z.enum(TICKET_STATUSES, { message: 'Please select a valid status.' }),
-  description: z.string().optional(),
-  resolution_steps: z.string().optional(),
-  category: z.enum(COMPLAINT_CATEGORIES, { message: 'Kategori keluhan diperlukan.' }),
-  assigned_to: z.string().nullable().optional(),
-});
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface Ticket {
   id: string;
@@ -56,31 +47,45 @@ interface Ticket {
   created_at: string;
   title: string;
   description: string | null;
-  status: typeof TICKET_STATUSES[number] | 'closed'; // Keep 'closed' for data, but not for agent setting
-  priority: typeof TICKET_PRIORITIES[number];
+  status: 'open' | 'in_progress' | 'resolved' | 'closed';
+  priority: 'low' | 'medium' | 'high';
   created_by: string;
   assigned_to: string | null;
   customer_name: string | null;
   customer_whatsapp: string | null;
   resolved_at: string | null;
   resolution_steps: string | null;
-  category: typeof COMPLAINT_CATEGORIES[number];
-  assigned_to_profile: { first_name: string | null; last_name: string | null; email: string | null; } | null;
+  category: string | null;
   creator_profile: { first_name: string | null; last_name: string | null; email: string | null; } | null;
+  assigned_to_profile: { first_name: string | null; last_name: string | null; email: string | null; } | null;
 }
 
-interface AssignableUser {
+interface Profile {
   id: string;
   first_name: string | null;
   last_name: string | null;
-  email: string;
+  email: string | null;
+  role: string; // Ensure 'role' is included as it's required by the interface
 }
+
+const ticketSchema = z.object({
+  title: z.string().min(1, 'Judul tidak boleh kosong'),
+  description: z.string().optional(),
+  status: z.enum(['open', 'in_progress', 'resolved', 'closed']),
+  priority: z.enum(['low', 'medium', 'high']),
+  assigned_to: z.string().nullable().optional(),
+  customer_name: z.string().optional(),
+  customer_whatsapp: z.string().optional(),
+  resolution_steps: z.string().optional(),
+  category: z.string().optional(),
+});
 
 const TicketDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { session, loading, role, user } = useSession();
   const queryClient = useQueryClient();
+  const { session, loading, role, user } = useSession();
+  const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
     if (!loading && !session) {
@@ -89,17 +94,16 @@ const TicketDetail = () => {
     }
   }, [session, loading, navigate]);
 
-  const { data: ticket, isLoading, error } = useQuery<Ticket, Error>({
+  // Fetch ticket details
+  const { data: ticket, isLoading: isLoadingTicket, error: ticketError } = useQuery<Ticket, Error>({
     queryKey: ['ticket', id],
     queryFn: async () => {
-      if (!id) throw new Error('Ticket ID is missing.');
       const { data, error } = await supabase
         .from('tickets')
         .select(`
           *,
-          ticket_number,
-          assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email),
-          creator_profile:profiles!tickets_created_by_fkey(first_name, last_name, email)
+          creator_profile:profiles!tickets_created_by_fkey(first_name, last_name, email),
+          assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email)
         `)
         .eq('id', id)
         .single();
@@ -107,84 +111,86 @@ const TicketDetail = () => {
       if (error) throw new Error(error.message);
       return data;
     },
-    enabled: !!session && !!id,
+    enabled: !!session,
   });
 
-  const canManageTickets = role === 'admin' || role === 'customer_service';
-
-  const { data: assignableUsers, isLoading: isAssignableUsersLoading } = useQuery<AssignableUser[], Error>({
-    queryKey: ['assignableUsers'],
+  // Fetch agents (customer_service and admin roles) for assignment
+  const { data: agents, isLoading: isLoadingAgents } = useQuery<Profile[], Error>({
+    queryKey: ['agents'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, first_name, last_name, email')
+        .select('id, first_name, last_name, email, role') // Added 'role' to the select statement
         .in('role', ['admin', 'customer_service']);
-
       if (error) throw new Error(error.message);
       return data;
     },
-    enabled: canManageTickets,
-    staleTime: 10 * 60 * 1000,
+    enabled: !!session && (role === 'admin' || role === 'customer_service'),
   });
 
-  const form = useForm<z.infer<typeof updateTicketFormSchema>>({
-    resolver: zodResolver(updateTicketFormSchema),
+  const form = useForm<z.infer<typeof ticketSchema>>({
+    resolver: zodResolver(ticketSchema),
     defaultValues: {
-      status: 'open',
+      title: '',
       description: '',
-      resolution_steps: '',
-      category: 'General Inquiry',
+      status: 'open',
+      priority: 'medium',
       assigned_to: null,
+      customer_name: '',
+      customer_whatsapp: '',
+      resolution_steps: '',
+      category: '',
+    },
+    values: {
+      title: ticket?.title || '',
+      description: ticket?.description || '',
+      status: ticket?.status || 'open',
+      priority: ticket?.priority || 'medium',
+      assigned_to: ticket?.assigned_to || null,
+      customer_name: ticket?.customer_name || '',
+      customer_whatsapp: ticket?.customer_whatsapp || '',
+      resolution_steps: ticket?.resolution_steps || '',
+      category: ticket?.category || '',
     },
   });
 
   useEffect(() => {
     if (ticket) {
-      // Ensure the status is one of the allowed TICKET_STATUSES
-      const currentStatus = TICKET_STATUSES.includes(ticket.status as typeof TICKET_STATUSES[number])
-        ? (ticket.status as typeof TICKET_STATUSES[number])
-        : 'open'; // Default to 'open' if current status is 'closed' or invalid
-
       form.reset({
-        status: currentStatus,
+        title: ticket.title || '',
         description: ticket.description || '',
+        status: ticket.status || 'open',
+        priority: ticket.priority || 'medium',
+        assigned_to: ticket.assigned_to || null,
+        customer_name: ticket.customer_name || '',
+        customer_whatsapp: ticket.customer_whatsapp || '',
         resolution_steps: ticket.resolution_steps || '',
-        category: ticket.category,
-        assigned_to: ticket.assigned_to,
+        category: ticket.category || '',
       });
     }
   }, [ticket, form]);
 
-  const updateTicketMutation = useMutation<any, Error, z.infer<typeof updateTicketFormSchema>>({
-    mutationFn: async (updatedData) => {
-      if (!id) throw new Error('Ticket ID is missing.');
+  // Update ticket mutation
+  const updateTicketMutation = useMutation<any, Error, z.infer<typeof ticketSchema>>({
+    mutationFn: async (updatedTicket) => {
+      const { status, resolution_steps, ...rest } = updatedTicket;
+      const payload: any = { ...rest, status };
 
-      const currentTicket = queryClient.getQueryData<Ticket>(['ticket', id]);
-      let newResolvedAt = currentTicket?.resolved_at;
-
-      if (updatedData.status === 'resolved' && currentTicket?.status !== 'resolved') {
-        newResolvedAt = new Date().toISOString();
-      } else if (updatedData.status !== 'resolved' && currentTicket?.status === 'resolved') {
-        newResolvedAt = null;
+      if (status === 'resolved' && !ticket?.resolved_at) {
+        payload.resolved_at = new Date().toISOString();
+        payload.resolution_steps = resolution_steps;
+      } else if (status !== 'resolved' && ticket?.resolved_at) {
+        payload.resolved_at = null;
+        payload.resolution_steps = null;
+      } else if (status === 'resolved' && ticket?.resolved_at) {
+        payload.resolution_steps = resolution_steps;
       }
 
       const { data, error } = await supabase
         .from('tickets')
-        .update({
-          status: updatedData.status,
-          description: updatedData.description,
-          resolution_steps: updatedData.resolution_steps,
-          category: updatedData.category,
-          assigned_to: updatedData.assigned_to,
-          resolved_at: newResolvedAt,
-        })
+        .update(payload)
         .eq('id', id)
-        .select(`
-          *,
-          assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email),
-          creator_profile:profiles!tickets_created_by_fkey(first_name, last_name, email)
-        `)
-        .single();
+        .select();
 
       if (error) throw new Error(error.message);
       return data;
@@ -192,22 +198,52 @@ const TicketDetail = () => {
     onSuccess: () => {
       showSuccess('Tiket berhasil diperbarui!');
       queryClient.invalidateQueries({ queryKey: ['ticket', id] });
-      queryClient.invalidateQueries({ queryKey: ['tickets'] }); // Invalidate all tickets tabs
-      queryClient.invalidateQueries({ queryKey: ['dashboardTickets'] });
+      queryClient.invalidateQueries({ queryKey: ['latestTickets'] });
+      queryClient.invalidateQueries({ queryKey: ['activeTickets'] });
+      queryClient.invalidateQueries({ queryKey: ['resolvedTicketsByAgentCount'] });
+      queryClient.invalidateQueries({ queryKey: ['assignedActiveTicketsCount'] });
+      setIsEditing(false);
     },
-    onError: (err) => {
-      showError(`Gagal memperbarui tiket: ${err.message}`);
+    onError: (error) => {
+      showError(`Gagal memperbarui tiket: ${error.message}`);
     },
   });
 
-  const onSubmit = (values: z.infer<typeof updateTicketFormSchema>) => {
+  // Delete ticket mutation
+  const deleteTicketMutation = useMutation<any, Error, string>({
+    mutationFn: async (ticketId) => {
+      const { error } = await supabase
+        .from('tickets')
+        .delete()
+        .eq('id', ticketId);
+
+      if (error) throw new Error(error.message);
+      return true;
+    },
+    onSuccess: () => {
+      showSuccess('Tiket berhasil dihapus!');
+      queryClient.invalidateQueries({ queryKey: ['latestTickets'] });
+      queryClient.invalidateQueries({ queryKey: ['activeTickets'] });
+      queryClient.invalidateQueries({ queryKey: ['resolvedTicketsByAgentCount'] });
+      queryClient.invalidateQueries({ queryKey: ['assignedActiveTicketsCount'] });
+      navigate('/tickets'); // Redirect to tickets list after deletion
+    },
+    onError: (error) => {
+      showError(`Gagal menghapus tiket: ${error.message}`);
+    },
+  });
+
+  const onSubmit = (values: z.infer<typeof ticketSchema>) => {
     updateTicketMutation.mutate(values);
   };
 
-  const isCreator = user?.id === ticket?.created_by;
-  const canViewTicket = isCreator || canManageTickets;
+  const handleDelete = () => {
+    if (id) {
+      deleteTicketMutation.mutate(id);
+    }
+  };
 
-  if (loading || isLoading || isAssignableUsersLoading) {
+  if (isLoadingTicket || loading || isLoadingAgents) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
@@ -216,33 +252,41 @@ const TicketDetail = () => {
     );
   }
 
-  if (error) {
+  if (ticketError) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
         <h1 className="text-3xl font-bold text-red-600 dark:text-red-400 mb-4">Error</h1>
         <p className="text-lg text-gray-700 dark:text-gray-300">
-          Gagal memuat tiket: {error.message}
+          Gagal memuat tiket: {ticketError.message}
         </p>
-        <Button onClick={() => navigate(-1)} className="mt-4">
-          <ArrowLeft className="mr-2 h-4 w-4" /> Kembali
+        <Button onClick={() => navigate('/tickets')} className="mt-4">
+          Kembali ke Daftar Tiket
         </Button>
       </div>
     );
   }
 
-  if (!ticket || !canViewTicket) {
+  if (!ticket) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
-        <h1 className="text-3xl font-bold text-red-600 dark:text-red-400 mb-4">Akses Ditolak</h1>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Tiket Tidak Ditemukan</h1>
         <p className="text-lg text-gray-700 dark:text-gray-300">
-          Anda tidak memiliki izin untuk melihat tiket ini atau tiket tidak ditemukan.
+          Tiket dengan ID "{id}" tidak ditemukan.
         </p>
-        <Button onClick={() => navigate(-1)} className="mt-4">
-          <ArrowLeft className="mr-2 h-4 w-4" /> Kembali
+        <Button onClick={() => navigate('/tickets')} className="mt-4">
+          Kembali ke Daftar Tiket
         </Button>
       </div>
     );
   }
+
+  const creatorName = ticket.creator_profile
+    ? [ticket.creator_profile.first_name, ticket.creator_profile.last_name].filter(Boolean).join(' ') || ticket.creator_profile.email
+    : 'N/A';
+
+  const assignedAgentName = ticket.assigned_to_profile
+    ? [ticket.assigned_to_profile.first_name, ticket.assigned_to_profile.last_name].filter(Boolean).join(' ') || ticket.assigned_to_profile.email
+    : 'Belum Ditugaskan';
 
   const slaStatus = getSlaStatus(ticket.created_at, ticket.resolved_at, ticket.status);
   const slaBadgeClass =
@@ -252,218 +296,267 @@ const TicketDetail = () => {
       ? 'bg-yellow-100 text-yellow-800'
       : 'bg-red-100 text-red-800';
 
-  const creatorName = ticket.creator_profile
-    ? [ticket.creator_profile.first_name, ticket.creator_profile.last_name].filter(Boolean).join(' ') || ticket.creator_profile.email
-    : 'Pengguna Tidak Dikenal';
+  const canEdit = role === 'admin' || role === 'customer_service';
+  const canDelete = role === 'admin';
 
-  const assignedAgentName = ticket.assigned_to_profile 
-    ? [ticket.assigned_to_profile.first_name, ticket.assigned_to_profile.last_name].filter(Boolean).join(' ') || ticket.assigned_to_profile.email 
-    : 'Belum Ditugaskan';
+  // Format WhatsApp number for hyperlink
+  const formattedWhatsapp = ticket.customer_whatsapp ? ticket.customer_whatsapp.replace(/\D/g, '') : ''; // Remove non-digits
+  const whatsappLink = formattedWhatsapp ? `https://wa.me/${formattedWhatsapp}` : '#';
 
   return (
     <div className="container mx-auto p-4">
-      <Button variant="ghost" onClick={() => navigate(-1)} className="mb-6">
-        <ArrowLeft className="mr-2 h-4 w-4" /> Kembali ke Daftar Tiket
-      </Button>
-
-      <Card className="w-full">
-        <CardHeader>
-          <CardTitle className="text-3xl font-bold text-gray-900 dark:text-white">{ticket.title}</CardTitle>
-          <CardDescription className="text-gray-600 dark:text-gray-400">
-            No Tiket: {ticket.ticket_number} | Dibuat pada: {new Date(ticket.created_at).toLocaleString()}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <h3 className="text-lg font-semibold mb-2">Detail Pelanggan</h3>
-              <p><strong>Nama:</strong> {ticket.customer_name || '-'}</p>
-              <p><strong>WhatsApp:</strong> {ticket.customer_whatsapp || '-'}</p>
-              <p><strong>Dibuat Oleh:</strong> <span className="font-medium text-gray-900 dark:text-white">{creatorName}</span></p>
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold mb-2">Status & Prioritas</h3>
-              <p>
-                <strong>Status:</strong>{' '}
-                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
-                  ticket.status === 'open' ? 'bg-yellow-100 text-yellow-800' :
-                  ticket.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
-                  ticket.status === 'resolved' ? 'bg-green-100 text-green-800' :
-                  'bg-gray-100 text-gray-800'
-                }`}>
-                  {ticket.status.replace('_', ' ')}
-                </span>
-              </p>
-              <p>
-                <strong>Prioritas:</strong>{' '}
-                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
-                  ticket.priority === 'low' ? 'bg-green-100 text-green-800' :
-                  ticket.priority === 'medium' ? 'bg-blue-100 text-blue-800' :
-                  ticket.priority === 'high' ? 'bg-orange-100 text-orange-800' :
-                  'bg-red-100 text-red-800'
-                }`}>
-                  {ticket.priority}
-                </span>
-              </p>
-              <p>
-                <strong>Kategori:</strong>{' '}
-                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800">
-                  {ticket.category}
-                </span>
-              </p>
-              <p>
-                <strong>SLA:</strong>{' '}
-                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${slaBadgeClass}`}>
-                  {slaStatus}
-                </span>
-              </p>
-              <p>
-                <strong>Ditugaskan Kepada:</strong> {assignedAgentName}
-              </p>
-              {ticket.resolved_at && (
-                <p><strong>Diselesaikan pada:</strong> {new Date(ticket.resolved_at).toLocaleString()}</p>
+      <div className="flex items-center justify-between mb-6">
+        <Button variant="ghost" onClick={() => navigate(-1)} className="flex items-center gap-2">
+          <ArrowLeft className="h-4 w-4" /> Kembali
+        </Button>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Detail Tiket #{ticket.ticket_number}</h1>
+        <div className="flex gap-2">
+          {canEdit && (
+            <Button onClick={() => setIsEditing(!isEditing)} variant={isEditing ? 'secondary' : 'default'}>
+              {isEditing ? (
+                <>
+                  <XCircle className="mr-2 h-4 w-4" /> Batal
+                </>
+              ) : (
+                <>
+                  <Edit className="mr-2 h-4 w-4" /> Edit
+                </>
               )}
-            </div>
-          </div>
-
-          <div>
-            <h3 className="text-lg font-semibold mb-2">Deskripsi</h3>
-            <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-              {ticket.description || 'Tidak ada deskripsi yang diberikan.'}
-            </p>
-          </div>
-
-          {ticket.resolution_steps && (
-            <div>
-              <h3 className="text-lg font-semibold mb-2">Langkah Penyelesaian</h3>
-              <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-                {ticket.resolution_steps}
-              </p>
-            </div>
+            </Button>
           )}
+          {canDelete && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive">
+                  <Trash2 className="mr-2 h-4 w-4" /> Hapus
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Apakah Anda yakin?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Tindakan ini tidak dapat dibatalkan. Ini akan menghapus tiket ini secara permanen.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Batal</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete} disabled={deleteTicketMutation.isPending}>
+                    {deleteTicketMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Hapus
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </div>
+      </div>
 
-          {canManageTickets && (
-            <Card className="mt-8 bg-gray-50 dark:bg-gray-800">
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Info className="h-5 w-5 text-primary" /> Informasi Tiket
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <FormField
+                  control={form.control}
+                  name="title"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Judul</FormLabel>
+                      <FormControl>
+                        <Input {...field} disabled={!isEditing} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Deskripsi</FormLabel>
+                      <FormControl>
+                        <Textarea {...field} disabled={!isEditing} rows={4} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="category"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Kategori</FormLabel>
+                      <FormControl>
+                        <Input {...field} disabled={!isEditing} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <div className="space-y-2">
+                <p><strong>No Tiket:</strong> {ticket.ticket_number}</p>
+                <p><strong>Dibuat Pada:</strong> {new Date(ticket.created_at).toLocaleString()}</p>
+                <p><strong>Status:</strong>
+                  <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
+                    ticket.status === 'open' ? 'bg-yellow-100 text-yellow-800' :
+                    ticket.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                    ticket.status === 'resolved' ? 'bg-green-100 text-green-800' :
+                    'bg-gray-100 text-gray-800'
+                  }`}>
+                    {ticket.status.replace('_', ' ')}
+                  </span>
+                </p>
+                <p><strong>Prioritas:</strong>
+                  <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
+                    ticket.priority === 'low' ? 'bg-green-100 text-green-800' :
+                    ticket.priority === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                    'bg-red-100 text-red-800'
+                  }`}>
+                    {ticket.priority}
+                  </span>
+                </p>
+                <p><strong>SLA:</strong>
+                  <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${slaBadgeClass}`}>
+                    {slaStatus}
+                  </span>
+                </p>
+                {ticket.resolved_at && (
+                  <p><strong>Diselesaikan Pada:</strong> {new Date(ticket.resolved_at).toLocaleString()}</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <User className="h-5 w-5 text-primary" /> Detail Pelanggan & Pembuat
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <p><strong>Nama:</strong> {ticket.customer_name || '-'}</p>
+                <p>
+                  <strong>WhatsApp:</strong>{' '}
+                  {ticket.customer_whatsapp ? (
+                    <a
+                      href={whatsappLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      {ticket.customer_whatsapp}
+                    </a>
+                  ) : (
+                    '-'
+                  )}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <p><strong>Dibuat Oleh:</strong> <span className="font-medium text-gray-900 dark:text-white">{creatorName}</span></p>
+                <p><strong>Email Pembuat:</strong> {ticket.creator_profile?.email || '-'}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {(role === 'admin' || role === 'customer_service') && (
+            <Card>
               <CardHeader>
-                <CardTitle className="text-xl">Perbarui Tiket</CardTitle>
-                <CardDescription>Ubah status, deskripsi, atau langkah penyelesaian tiket ini.</CardDescription>
+                <CardTitle className="flex items-center gap-2">
+                  <Tag className="h-5 w-5 text-primary" /> Penugasan & Status
+                </CardTitle>
               </CardHeader>
-              <CardContent>
-                <Form {...form}>
-                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="category"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Kategori</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Pilih kategori" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {COMPLAINT_CATEGORIES.map((c) => (
-                                <SelectItem key={c} value={c}>
-                                  {c}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="status"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Status</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Pilih status" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {TICKET_STATUSES.map((s) => (
-                                <SelectItem key={s} value={s}>
-                                  {s.replace('_', ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="assigned_to"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Ditugaskan Kepada</FormLabel>
-                          <Select 
-                            onValueChange={(value) => field.onChange(value === "unassigned" ? null : value)} 
-                            defaultValue={field.value || "unassigned"}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Pilih agen" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="unassigned">Belum Ditugaskan</SelectItem>
-                              {assignableUsers?.map((agent) => (
-                                <SelectItem key={agent.id} value={agent.id}>
-                                  {[agent.first_name, agent.last_name].filter(Boolean).join(' ') || agent.email}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="description"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Deskripsi</FormLabel>
+              <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <FormField
+                    control={form.control}
+                    name="assigned_to"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Ditugaskan Kepada</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value || ''} disabled={!isEditing}>
                           <FormControl>
-                            <Textarea placeholder="Perbarui deskripsi tiket" rows={5} {...field} />
+                            <SelectTrigger>
+                              <SelectValue placeholder="Pilih agen" />
+                            </SelectTrigger>
                           </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                          <SelectContent>
+                            <SelectItem value="null">Belum Ditugaskan</SelectItem>
+                            {agents?.map((agent) => (
+                              <SelectItem key={agent.id} value={agent.id}>
+                                {[agent.first_name, agent.last_name].filter(Boolean).join(' ') || agent.email}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <p><strong>Agen Saat Ini:</strong> {assignedAgentName}</p>
+                </div>
+                <div className="space-y-2">
+                  <FormField
+                    control={form.control}
+                    name="status"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Status Tiket</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value} disabled={!isEditing}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Pilih status" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="open">Open</SelectItem>
+                            <SelectItem value="in_progress">In Progress</SelectItem>
+                            <SelectItem value="resolved">Resolved</SelectItem>
+                            <SelectItem value="closed">Closed</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  {form.watch('status') === 'resolved' && (
                     <FormField
                       control={form.control}
                       name="resolution_steps"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Langkah Penyelesaian (Opsional)</FormLabel>
+                          <FormLabel>Langkah Resolusi</FormLabel>
                           <FormControl>
-                            <Textarea placeholder="Catat langkah-langkah yang diambil untuk menyelesaikan tiket ini" rows={5} {...field} />
+                            <Textarea {...field} disabled={!isEditing} rows={4} placeholder="Jelaskan langkah-langkah yang diambil untuk menyelesaikan tiket ini." />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-                    <Button type="submit" disabled={updateTicketMutation.isPending}>
-                      {updateTicketMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Simpan Perubahan
-                    </Button>
-                  </form>
-                </Form>
+                  )}
+                </div>
               </CardContent>
             </Card>
           )}
-        </CardContent>
-      </Card>
+
+          {isEditing && (
+            <div className="flex justify-end gap-2">
+              <Button type="submit" disabled={updateTicketMutation.isPending}>
+                {updateTicketMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                <Save className="mr-2 h-4 w-4" /> Simpan Perubahan
+              </Button>
+            </div>
+          )}
+        </form>
+      </Form>
     </div>
   );
 };
