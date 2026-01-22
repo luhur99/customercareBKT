@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, Ticket as TicketIcon, CheckCircle, UserCheck, TrendingUp, Eye, PieChart } from 'lucide-react'; // Changed Percent to PieChart
+import { Loader2, Ticket as TicketIcon, CheckCircle, UserCheck, TrendingUp, Eye, PieChart, Award } from 'lucide-react'; // Added Award icon
 
 import { useSession } from '@/components/SessionContextProvider';
 import { Button } from '@/components/ui/button';
@@ -32,7 +32,8 @@ interface Ticket {
   customer_whatsapp: string | null;
   resolved_at: string | null;
   category: string;
-  assigned_to_profile: { first_name: string | null; last_name: string | null; email: string | null; } | null;
+  // Changed assigned_to_profile to profiles to match the Supabase query alias
+  profiles: { first_name: string | null; last_name: string | null; email: string | null; }[] | null; // Supabase returns an array for joined tables
 }
 
 interface Profile {
@@ -41,6 +42,14 @@ interface Profile {
   last_name: string | null;
   role: string;
   email: string;
+}
+
+interface TopAgentPerformance {
+  assigned_to: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  resolved_count: number;
 }
 
 const Dashboard = () => {
@@ -133,7 +142,7 @@ const Dashboard = () => {
         .from('tickets')
         .select(`
           *,
-          assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email)
+          profiles!tickets_assigned_to_fkey(first_name, last_name, email)
         `)
         .order('created_at', { ascending: false })
         .limit(15);
@@ -189,8 +198,52 @@ const Dashboard = () => {
     enabled: !!session && (role === 'admin' || role === 'customer_service'),
   });
 
+  // NEW Query: Top 3 Agents by Resolved Tickets
+  const { data: topAgents, isLoading: isLoadingTopAgents } = useQuery<TopAgentPerformance[], Error>({
+    queryKey: ['topAgents'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('tickets')
+        .select(`
+          assigned_to,
+          profiles!tickets_assigned_to_fkey(first_name, last_name, email)
+        `)
+        .eq('status', 'resolved')
+        .not('assigned_to', 'is', null); // Only count tickets assigned to someone
 
-  if (loading || isLoadingAllTickets || isLoadingActiveTickets || isLoadingProfiles || isLoadingResolvedTicketsByAgent || isLoadingLatestTickets || isLoadingAssignedActiveTickets || isLoadingSlaPerformance || isLoadingTicketStatusPercentages) {
+      if (error) throw new Error(error.message);
+
+      // Aggregate data to count resolved tickets per agent
+      const agentCounts: { [key: string]: { count: number; profile: { first_name: string | null; last_name: string | null; email: string | null; } | null } } = {};
+      data.forEach(ticket => {
+        if (ticket.assigned_to) {
+          // Extract the first profile from the array, or null if the array is empty
+          const agentProfile = ticket.profiles && ticket.profiles.length > 0 ? ticket.profiles[0] : null;
+          if (!agentCounts[ticket.assigned_to]) {
+            agentCounts[ticket.assigned_to] = { count: 0, profile: agentProfile };
+          }
+          agentCounts[ticket.assigned_to].count++;
+        }
+      });
+
+      const sortedAgents = Object.entries(agentCounts)
+        .map(([assigned_to, { count, profile }]) => ({
+          assigned_to,
+          first_name: profile?.first_name || null,
+          last_name: profile?.last_name || null,
+          email: profile?.email || null,
+          resolved_count: count,
+        }))
+        .sort((a, b) => b.resolved_count - a.resolved_count)
+        .slice(0, 3); // Get top 3
+
+      return sortedAgents;
+    },
+    enabled: !!session && (role === 'admin' || role === 'customer_service'),
+  });
+
+
+  if (loading || isLoadingAllTickets || isLoadingActiveTickets || isLoadingProfiles || isLoadingResolvedTicketsByAgent || isLoadingLatestTickets || isLoadingAssignedActiveTickets || isLoadingSlaPerformance || isLoadingTicketStatusPercentages || isLoadingTopAgents) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
@@ -273,7 +326,7 @@ const Dashboard = () => {
           </Card>
         )}
 
-        {/* NEW Card: Ticket Status Percentages */}
+        {/* Card: Ticket Status Percentages */}
         {(role === 'admin' || role === 'customer_service') && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -303,6 +356,36 @@ const Dashboard = () => {
                   </span>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* NEW Card: Top Agent Performance */}
+        {(role === 'admin' || role === 'customer_service') && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">
+                Performa Agen Terbaik
+              </CardTitle>
+              <Award className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              {topAgents && topAgents.length > 0 ? (
+                <div className="space-y-2">
+                  {topAgents.map((agent, index) => (
+                    <div key={agent.assigned_to} className="flex justify-between items-center text-sm">
+                      <span className="font-medium">
+                        {index + 1}. {[agent.first_name, agent.last_name].filter(Boolean).join(' ') || agent.email}
+                      </span>
+                      <span className="text-gray-600 dark:text-gray-400">
+                        {agent.resolved_count} Tiket
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Belum ada tiket yang diselesaikan oleh agen.</p>
+              )}
             </CardContent>
           </Card>
         )}
@@ -345,8 +428,8 @@ const Dashboard = () => {
                           ? 'bg-yellow-100 text-yellow-800'
                           : 'bg-red-100 text-red-800';
                       
-                      const assignedAgentName = ticket.assigned_to_profile 
-                        ? [ticket.assigned_to_profile.first_name, ticket.assigned_to_profile.last_name].filter(Boolean).join(' ') || ticket.assigned_to_profile.email 
+                      const assignedAgentName = ticket.profiles 
+                        ? [ticket.profiles[0]?.first_name, ticket.profiles[0]?.last_name].filter(Boolean).join(' ') || ticket.profiles[0]?.email 
                         : 'Belum Ditugaskan';
 
                       // Construct the WhatsApp share link
