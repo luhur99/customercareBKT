@@ -32,7 +32,6 @@ interface Ticket {
   customer_whatsapp: string | null;
   resolved_at: string | null;
   category: string;
-  // Changed assigned_to_profile to profiles to match the Supabase query alias
   profiles: { first_name: string | null; last_name: string | null; email: string | null; }[] | null; // Supabase returns an array for joined tables
 }
 
@@ -428,9 +427,9 @@ const Dashboard = () => {
                           ? 'bg-yellow-100 text-yellow-800'
                           : 'bg-red-100 text-red-800';
                       
-                      const assignedAgentName = ticket.profiles 
-                        ? [ticket.profiles[0]?.first_name, ticket.profiles[0]?.last_name].filter(Boolean).join(' ') || ticket.profiles[0]?.email 
-                        : 'Belum Ditugaskan';
+                      const assignedAgentName = ticket.profiles && ticket.profiles.length > 0
+                        ? [ticket.profiles[0]?.first_name, ticket.profiles[0]?.last_name].filter(Boolean).join(' ') || ticket.profiles[0]?.email || ticket.assigned_to
+                        : (ticket.assigned_to ? ticket.assigned_to : 'Belum Ditugaskan');
 
                       // Construct the WhatsApp share link
                       const ticketDetailUrl = `${window.location.origin}/tickets/${ticket.id}`;
