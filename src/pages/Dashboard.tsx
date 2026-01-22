@@ -261,9 +261,30 @@ const Dashboard = () => {
                         ? [ticket.assigned_to_profile.first_name, ticket.assigned_to_profile.last_name].filter(Boolean).join(' ') || ticket.assigned_to_profile.email 
                         : 'Belum Ditugaskan';
 
+                      // Construct the WhatsApp share link
+                      const ticketDetailUrl = `${window.location.origin}/tickets/${ticket.id}`;
+                      const whatsappMessage = encodeURIComponent(
+                        `Halo, saya ingin berbagi detail tiket ini dengan Anda:\n\n` +
+                        `No. Tiket: ${ticket.ticket_number}\n` +
+                        `Judul: ${ticket.title}\n` +
+                        `Status: ${ticket.status.replace('_', ' ')}\n` +
+                        `Prioritas: ${ticket.priority}\n` +
+                        `Lihat detail lengkap di: ${ticketDetailUrl}`
+                      );
+                      const whatsappShareLink = `https://wa.me/?text=${whatsappMessage}`;
+
                       return (
                         <TableRow key={ticket.id}>
-                          <TableCell className="font-medium">{ticket.ticket_number}</TableCell>
+                          <TableCell className="font-medium">
+                            <a 
+                              href={whatsappShareLink} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="text-blue-600 hover:underline dark:text-blue-400"
+                            >
+                              {ticket.ticket_number}
+                            </a>
+                          </TableCell>
                           <TableCell>{ticket.title}</TableCell>
                           <TableCell>{new Date(ticket.created_at).toLocaleDateString()}</TableCell>
                           <TableCell>
