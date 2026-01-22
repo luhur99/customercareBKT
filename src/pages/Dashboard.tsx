@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, Ticket as TicketIcon, CheckCircle, Eye } from 'lucide-react';
+import { Loader2, Ticket as TicketIcon, CheckCircle, Eye, UserCheck } from 'lucide-react'; // Added UserCheck icon
 
 import { useSession } from '@/components/SessionContextProvider';
 import { Button } from '@/components/ui/button';
@@ -17,8 +17,8 @@ import {
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getSlaStatus } from '@/utils/sla';
-import SlaPerformanceChart from '@/components/SlaPerformanceChart'; // Import new chart component
-import ResolvedTicketsChart from '@/components/ResolvedTicketsChart'; // Import new chart component
+import SlaPerformanceChart from '@/components/SlaPerformanceChart';
+import ResolvedTicketsChart from '@/components/ResolvedTicketsChart';
 
 interface Ticket {
   id: string;
@@ -98,6 +98,23 @@ const Dashboard = () => {
     enabled: !!session && (role === 'admin' || role === 'customer_service') && !!user?.id,
   });
 
+  // NEW Query: Tickets assigned to the current agent that are still active
+  const { data: assignedActiveTicketsCount, isLoading: isLoadingAssignedActiveTickets } = useQuery<number, Error>({
+    queryKey: ['assignedActiveTicketsCount', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return 0;
+      const { count, error } = await supabase
+        .from('tickets')
+        .select('*', { count: 'exact' })
+        .eq('assigned_to', user.id)
+        .not('status', 'in', ['resolved', 'closed']); // Count tickets assigned to current agent that are not resolved or closed
+
+      if (error) throw new Error(error.message);
+      return count || 0;
+    },
+    enabled: !!session && (role === 'admin' || role === 'customer_service') && !!user?.id,
+  });
+
   // Query for profiles (for admin/customer_service to see agents) - still needed for agent count if desired elsewhere
   const { data: profiles, isLoading: isLoadingProfiles } = useQuery<Profile[], Error>({
     queryKey: ['profiles'],
@@ -129,7 +146,7 @@ const Dashboard = () => {
     enabled: !!session && (role === 'admin' || role === 'customer_service'),
   });
 
-  if (loading || isLoadingAllTickets || isLoadingActiveTickets || isLoadingProfiles || isLoadingResolvedTicketsByAgent || isLoadingLatestTickets) {
+  if (loading || isLoadingAllTickets || isLoadingActiveTickets || isLoadingProfiles || isLoadingResolvedTicketsByAgent || isLoadingLatestTickets || isLoadingAssignedActiveTickets) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
@@ -175,12 +192,29 @@ const Dashboard = () => {
           </Card>
         )}
 
-        {/* NEW: SLA Performance Chart */}
+        {/* NEW Card: Tiket Ditugaskan Kepada Saya */}
+        {(role === 'admin' || role === 'customer_service') && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">
+                Tiket Ditugaskan Kepada Saya
+              </CardTitle>
+              <UserCheck className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {assignedActiveTicketsCount}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* SLA Performance Chart */}
         {(role === 'admin' || role === 'customer_service') && (
           <SlaPerformanceChart />
         )}
 
-        {/* NEW: Resolved Tickets Percentage Chart */}
+        {/* Resolved Tickets Percentage Chart */}
         {(role === 'admin' || role === 'customer_service') && (
           <ResolvedTicketsChart />
         )}
@@ -203,13 +237,13 @@ const Dashboard = () => {
                     <TableHead>Status</TableHead>
                     <TableHead>Ditugaskan Kepada</TableHead>
                     <TableHead>SLA</TableHead>
-                    {/* Removed Aksi column */}
+                    <TableHead className="text-right">Aksi</TableHead> {/* Re-added Aksi column header */}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {latestTickets?.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-gray-500"> {/* Adjusted colSpan */}
+                      <TableCell colSpan={7} className="text-center py-8 text-gray-500"> {/* Adjusted colSpan to 7 */}
                         Tidak ada tiket terbaru yang ditemukan.
                       </TableCell>
                     </TableRow>
@@ -248,7 +282,16 @@ const Dashboard = () => {
                               {slaStatus}
                             </span>
                           </TableCell>
-                          {/* Removed Aksi column content */}
+                          <TableCell className="text-right">
+                            {user?.id === ticket.created_by && ( // Conditionally render action button
+                              <Link to={`/tickets/${ticket.id}`}>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                  <Eye className="h-4 w-4" />
+                                  <span className="sr-only">Lihat Detail</span>
+                                </Button>
+                              </Link>
+                            )}
+                          </TableCell>
                         </TableRow>
                       );
                     })
