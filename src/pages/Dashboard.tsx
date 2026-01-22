@@ -431,9 +431,6 @@ const Dashboard = () => {
                         ? [ticket.profiles[0]?.first_name, ticket.profiles[0]?.last_name].filter(Boolean).join(' ') || ticket.profiles[0]?.email || ticket.assigned_to
                         : (ticket.assigned_to ? ticket.assigned_to : 'Belum Ditugaskan');
 
-                      // TEMPORARY DEBUGGING LOG: Check what profiles data is received
-                      console.log(`Ticket ${ticket.ticket_number}: assigned_to=${ticket.assigned_to}, profiles=${JSON.stringify(ticket.profiles)}, assignedAgentName=${assignedAgentName}`);
-
                       // Construct the WhatsApp share link
                       const ticketDetailUrl = `${window.location.origin}/tickets/${ticket.id}`;
                       const whatsappMessage = encodeURIComponent(
