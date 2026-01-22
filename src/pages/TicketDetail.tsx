@@ -303,6 +303,17 @@ const TicketDetail = () => {
   const formattedWhatsapp = ticket.customer_whatsapp ? ticket.customer_whatsapp.replace(/\D/g, '') : ''; // Remove non-digits
   const whatsappLink = formattedWhatsapp ? `https://wa.me/${formattedWhatsapp}` : '#';
 
+  // Date formatting options for Indonesian locale, 24-hour
+  const dateTimeFormatOptions: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  };
+
   return (
     <div className="container mx-auto p-4">
       <div className="flex items-center justify-between mb-6">
@@ -417,7 +428,7 @@ const TicketDetail = () => {
               </div>
               <div className="space-y-2">
                 <p><strong>No Tiket:</strong> {ticket.ticket_number}</p>
-                <p><strong>Dibuat Pada:</strong> {new Date(ticket.created_at).toLocaleString()}</p>
+                <p><strong>Dibuat Pada:</strong> {new Date(ticket.created_at).toLocaleString('id-ID', dateTimeFormatOptions)}</p>
                 <p><strong>Status:</strong>
                   <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
                     ticket.status === 'open' ? 'bg-yellow-100 text-yellow-800' :
@@ -443,7 +454,7 @@ const TicketDetail = () => {
                   </span>
                 </p>
                 {ticket.resolved_at && (
-                  <p><strong>Diselesaikan Pada:</strong> {new Date(ticket.resolved_at).toLocaleString()}</p>
+                  <p><strong>Diselesaikan Pada:</strong> {new Date(ticket.resolved_at).toLocaleString('id-ID', dateTimeFormatOptions)}</p>
                 )}
               </div>
             </CardContent>
