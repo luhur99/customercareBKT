@@ -65,7 +65,7 @@ interface Profile {
   first_name: string | null;
   last_name: string | null;
   email: string | null;
-  role: string; // Ensure 'role' is included as it's required by the interface
+  role: string;
 }
 
 const ticketSchema = z.object({
@@ -120,7 +120,7 @@ const TicketDetail = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, first_name, last_name, email, role') // Added 'role' to the select statement
+        .select('id, first_name, last_name, email, role')
         .in('role', ['admin', 'customer_service']);
       if (error) throw new Error(error.message);
       return data;
@@ -400,6 +400,20 @@ const TicketDetail = () => {
                     </FormItem>
                   )}
                 />
+                {/* Moved and made always visible: Problem Solving / Resolution Steps */}
+                <FormField
+                  control={form.control}
+                  name="resolution_steps"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Yang Sudah Dilakukan (Problem Solving)</FormLabel>
+                      <FormControl>
+                        <Textarea {...field} disabled={!isEditing} rows={4} placeholder="Jelaskan langkah-langkah yang diambil untuk menyelesaikan tiket ini." />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
               <div className="space-y-2">
                 <p><strong>No Tiket:</strong> {ticket.ticket_number}</p>
@@ -527,21 +541,7 @@ const TicketDetail = () => {
                       </FormItem>
                     )}
                   />
-                  {form.watch('status') === 'resolved' && (
-                    <FormField
-                      control={form.control}
-                      name="resolution_steps"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Langkah Resolusi</FormLabel>
-                          <FormControl>
-                            <Textarea {...field} disabled={!isEditing} rows={4} placeholder="Jelaskan langkah-langkah yang diambil untuk menyelesaikan tiket ini." />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  )}
+                  {/* Resolution steps is now always visible in the Information Card */}
                 </div>
               </CardContent>
             </Card>
