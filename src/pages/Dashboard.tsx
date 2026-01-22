@@ -107,7 +107,7 @@ const Dashboard = () => {
         .from('tickets')
         .select('*', { count: 'exact' })
         .eq('assigned_to', user.id)
-        .not('status', 'in', ['resolved', 'closed']); // Count tickets assigned to current agent that are not resolved or closed
+        .eq('status', 'in_progress'); // Changed filter to explicitly count 'in_progress' tickets
 
       if (error) throw new Error(error.message);
       return count || 0;
