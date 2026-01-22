@@ -1,10 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2, Send } from 'lucide-react';
+import { Loader2, Send, UploadCloud, XCircle } from 'lucide-react';
 
 import { useSession } from '@/components/SessionContextProvider';
 import { Button } from '@/components/ui/button';
@@ -45,26 +45,29 @@ const submitComplaintFormSchema = z.object({
   description: z.string().optional(),
   customer_name: z.string().min(1, { message: 'Nama pelanggan diperlukan.' }),
   customer_whatsapp: z.string().optional(),
-  category: z.enum(COMPLAINT_CATEGORIES, { message: 'Kategori keluhan diperlukan.' }), // New category field
+  category: z.enum(COMPLAINT_CATEGORIES, { message: 'Kategori keluhan diperlukan.' }),
+  // attachments: z.array(z.string()).optional(), // This will be handled internally, not directly by form
 });
 
 const SubmitComplaint = () => {
-  const { session, loading, user, role } = useSession(); // Get role from useSession
+  const { session, loading, user, role } = useSession();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [isUploadingFiles, setIsUploadingFiles] = useState(false);
 
-  // Redirect if not logged in
+  // Redirect if not logged in or unauthorized role
   useEffect(() => {
     if (!loading && !session) {
       showError('Anda perlu masuk untuk mengajukan keluhan.');
       navigate('/login');
     }
-    // Allow access for admin, customer_service, and sales roles
     if (!loading && session && !['admin', 'customer_service', 'sales'].includes(role || '')) {
       showError('Anda tidak memiliki izin untuk mengakses halaman ini.');
       navigate('/');
     }
-  }, [session, loading, navigate, role]); // Add role to dependencies
+  }, [session, loading, navigate, role]);
 
   const form = useForm<z.infer<typeof submitComplaintFormSchema>>({
     resolver: zodResolver(submitComplaintFormSchema),
@@ -73,26 +76,66 @@ const SubmitComplaint = () => {
       description: '',
       customer_name: '',
       customer_whatsapp: '',
-      category: 'General Inquiry', // Default category
+      category: 'General Inquiry',
     },
   });
 
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files) {
+      setSelectedFiles((prevFiles) => [...prevFiles, ...Array.from(event.target.files || [])]);
+    }
+  };
+
+  const handleRemoveFile = (indexToRemove: number) => {
+    setSelectedFiles((prevFiles) => prevFiles.filter((_, index) => index !== indexToRemove));
+  };
+
+  const uploadFiles = async (files: File[], ticketId: string): Promise<string[]> => {
+    setIsUploadingFiles(true);
+    const uploadedFileUrls: string[] = [];
+    for (const file of files) {
+      const fileExtension = file.name.split('.').pop();
+      const filePath = `${ticketId}/${Date.now()}-${Math.random().toString(36).substring(2, 15)}.${fileExtension}`;
+      const { data, error } = await supabase.storage
+        .from('ticket-attachments')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (error) {
+        console.error('Error uploading file:', error);
+        showError(`Gagal mengunggah file ${file.name}: ${error.message}`);
+        setIsUploadingFiles(false);
+        throw error; // Stop further processing if an upload fails
+      } else {
+        const { data: publicUrlData } = supabase.storage
+          .from('ticket-attachments')
+          .getPublicUrl(filePath);
+        uploadedFileUrls.push(publicUrlData.publicUrl);
+      }
+    }
+    setIsUploadingFiles(false);
+    return uploadedFileUrls;
+  };
+
   // Mutation for submitting a new complaint
-  const submitComplaintMutation = useMutation<any, Error, z.infer<typeof submitComplaintFormSchema>>({
-    mutationFn: async (newComplaintData) => {
+  const submitComplaintMutation = useMutation<any, Error, { formData: z.infer<typeof submitComplaintFormSchema>, attachments: string[] }>({
+    mutationFn: async ({ formData, attachments }) => {
       if (!user) throw new Error('Pengguna tidak terautentikasi.');
 
       const { data, error } = await supabase
         .from('tickets')
         .insert({
-          title: newComplaintData.title,
-          description: newComplaintData.description,
-          customer_name: newComplaintData.customer_name,
-          customer_whatsapp: newComplaintData.customer_whatsapp,
-          category: newComplaintData.category, // Include category
-          status: 'open', // Default status for new complaints
-          priority: 'medium', // Default priority for new complaints
+          title: formData.title,
+          description: formData.description,
+          customer_name: formData.customer_name,
+          customer_whatsapp: formData.customer_whatsapp,
+          category: formData.category,
+          status: 'open',
+          priority: 'medium',
           created_by: user.id,
+          attachments: attachments, // Include uploaded file URLs
         })
         .select()
         .single();
@@ -102,17 +145,41 @@ const SubmitComplaint = () => {
     },
     onSuccess: () => {
       showSuccess('Keluhan Anda berhasil diajukan!');
-      queryClient.invalidateQueries({ queryKey: ['tickets'] }); // Invalidate tickets query to refresh list
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['latestTickets'] }); // Invalidate latest tickets on dashboard
+      queryClient.invalidateQueries({ queryKey: ['activeTickets'] }); // Invalidate active tickets on dashboard
       form.reset();
-      navigate('/'); // Redirect to dashboard after submission
+      setSelectedFiles([]); // Clear selected files
+      navigate('/');
     },
     onError: (error) => {
       showError(`Gagal mengajukan keluhan: ${error.message}`);
     },
   });
 
-  const onSubmit = (values: z.infer<typeof submitComplaintFormSchema>) => {
-    submitComplaintMutation.mutate(values);
+  const onSubmit = async (values: z.infer<typeof submitComplaintFormSchema>) => {
+    try {
+      let uploadedUrls: string[] = [];
+      if (selectedFiles.length > 0) {
+        // Generate a temporary ID for file paths if needed, or handle after ticket creation
+        // For simplicity, let's assume we can upload first and then link.
+        // A better approach might be to create the ticket first, get its ID, then upload.
+        // For now, we'll upload and then submit. If upload fails, ticket won't be created.
+        // If we need ticket ID for file path, we'd need a two-step process or a generic path.
+        // Let's use a generic path for now, and if ticket ID is needed, we can refactor.
+        // For now, I'll use a placeholder 'temp-ticket' and update if a real ticket ID is needed for storage path.
+        // A more robust solution would be to create the ticket first, then upload files using the ticket ID.
+        // Given the current mutation structure, I'll upload files first.
+        // The `uploadFiles` function now takes a `ticketId` to structure paths.
+        // Since we don't have a ticket ID yet, we'll generate a UUID for the folder.
+        const tempTicketId = crypto.randomUUID(); // Generate a UUID for the folder
+        uploadedUrls = await uploadFiles(selectedFiles, tempTicketId);
+      }
+      submitComplaintMutation.mutate({ formData: values, attachments: uploadedUrls });
+    } catch (error) {
+      console.error('Error during file upload or form submission:', error);
+      // Error already handled by showError in uploadFiles or submitComplaintMutation
+    }
   };
 
   if (loading || !session || !['admin', 'customer_service', 'sales'].includes(role || '')) {
@@ -213,8 +280,54 @@ const SubmitComplaint = () => {
                   </FormItem>
                 )}
               />
-              <Button type="submit" className="w-full" disabled={submitComplaintMutation.isPending}>
-                {submitComplaintMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+
+              {/* File Upload Section */}
+              <FormItem>
+                <FormLabel>Lampiran (Opsional)</FormLabel>
+                <FormControl>
+                  <>
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      multiple
+                      onChange={handleFileChange}
+                      className="hidden"
+                      aria-label="Upload files"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full"
+                    >
+                      <UploadCloud className="mr-2 h-4 w-4" /> Pilih File
+                    </Button>
+                  </>
+                </FormControl>
+                <FormMessage />
+                {selectedFiles.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-sm font-medium">File Terpilih:</p>
+                    {selectedFiles.map((file, index) => (
+                      <div key={index} className="flex items-center justify-between p-2 border rounded-md text-sm">
+                        <span>{file.name}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRemoveFile(index)}
+                          className="h-auto p-1"
+                        >
+                          <XCircle className="h-4 w-4 text-red-500" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </FormItem>
+
+              <Button type="submit" className="w-full" disabled={submitComplaintMutation.isPending || isUploadingFiles}>
+                {(submitComplaintMutation.isPending || isUploadingFiles) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 <Send className="mr-2 h-4 w-4" /> Ajukan Keluhan
               </Button>
             </form>
