@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
@@ -29,6 +29,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
 
+// File validation constants
+const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf', 'text/plain'];
+const MAX_FILE_SIZE_MB = 10;
+const MAX_FILES = 5;
+
 // Define available complaint categories
 const COMPLAINT_CATEGORIES = [
   'Technical Issue',
@@ -46,7 +51,6 @@ const submitComplaintFormSchema = z.object({
   customer_name: z.string().min(1, { message: 'Nama pelanggan diperlukan.' }),
   customer_whatsapp: z.string().optional(),
   category: z.enum(COMPLAINT_CATEGORIES, { message: 'Kategori keluhan diperlukan.' }),
-  // attachments: z.array(z.string()).optional(), // This will be handled internally, not directly by form
 });
 
 const SubmitComplaint = () => {
@@ -81,8 +85,38 @@ const SubmitComplaint = () => {
   });
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files) {
-      setSelectedFiles((prevFiles) => [...prevFiles, ...Array.from(event.target.files || [])]);
+    if (!event.target.files) return;
+
+    const newFiles = Array.from(event.target.files);
+    const validFiles: File[] = [];
+    const errors: string[] = [];
+
+    // Check total file limit
+    if (selectedFiles.length + newFiles.length > MAX_FILES) {
+      showError(`Maksimal ${MAX_FILES} file diperbolehkan.`);
+      return;
+    }
+
+    for (const file of newFiles) {
+      // Validate file type
+      if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+        errors.push(`${file.name}: tipe file tidak didukung`);
+        continue;
+      }
+      // Validate file size
+      if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+        errors.push(`${file.name}: ukuran melebihi ${MAX_FILE_SIZE_MB}MB`);
+        continue;
+      }
+      validFiles.push(file);
+    }
+
+    if (errors.length > 0) {
+      showError(`File tidak valid: ${errors.join(', ')}`);
+    }
+
+    if (validFiles.length > 0) {
+      setSelectedFiles((prevFiles) => [...prevFiles, ...validFiles]);
     }
   };
 
@@ -90,15 +124,16 @@ const SubmitComplaint = () => {
     setSelectedFiles((prevFiles) => prevFiles.filter((_, index) => index !== indexToRemove));
   };
 
-  // Updated uploadFiles function to use userId and ticketId in the path
+  // Upload files using real ticket ID
   const uploadFiles = async (files: File[], userId: string, ticketId: string): Promise<string[]> => {
     setIsUploadingFiles(true);
-    const uploadedFileUrls: string[] = [];
+    const uploadedFilePaths: string[] = [];
+    
     for (const file of files) {
       const fileExtension = file.name.split('.').pop();
-      // Path structure: userId/ticketId/timestamp-random.extension
       const filePath = `${userId}/${ticketId}/${Date.now()}-${Math.random().toString(36).substring(2, 15)}.${fileExtension}`;
-      const { data, error } = await supabase.storage
+      
+      const { error } = await supabase.storage
         .from('ticket-attachments')
         .upload(filePath, file, {
           cacheControl: '3600',
@@ -109,24 +144,23 @@ const SubmitComplaint = () => {
         console.error('Error uploading file:', error);
         showError(`Gagal mengunggah file ${file.name}: ${error.message}`);
         setIsUploadingFiles(false);
-        throw error; // Stop further processing if an upload fails
-      } else {
-        const { data: publicUrlData } = supabase.storage
-          .from('ticket-attachments')
-          .getPublicUrl(filePath);
-        uploadedFileUrls.push(publicUrlData.publicUrl);
+        throw error;
       }
+      // Store only the file path, not the full URL
+      uploadedFilePaths.push(filePath);
     }
+    
     setIsUploadingFiles(false);
-    return uploadedFileUrls;
+    return uploadedFilePaths;
   };
 
-  // Mutation for submitting a new complaint
-  const submitComplaintMutation = useMutation<any, Error, { formData: z.infer<typeof submitComplaintFormSchema>, attachments: string[] }>({
-    mutationFn: async ({ formData, attachments }) => {
+  // Mutation for submitting a new complaint (now handles two-step process)
+  const submitComplaintMutation = useMutation({
+    mutationFn: async (formData: z.infer<typeof submitComplaintFormSchema>) => {
       if (!user) throw new Error('Pengguna tidak terautentikasi.');
 
-      const { data, error } = await supabase
+      // Step 1: Create ticket first (without attachments)
+      const { data: newTicket, error: insertError } = await supabase
         .from('tickets')
         .insert({
           title: formData.title,
@@ -137,45 +171,48 @@ const SubmitComplaint = () => {
           status: 'open',
           priority: 'medium',
           created_by: user.id,
-          attachments: attachments, // Include uploaded file URLs
+          attachments: [],
         })
         .select()
         .single();
 
-      if (error) throw new Error(error.message);
-      return data;
+      if (insertError) throw new Error(insertError.message);
+      if (!newTicket) throw new Error('Gagal membuat tiket.');
+
+      // Step 2: Upload files with real ticket ID if there are files
+      if (selectedFiles.length > 0) {
+        const filePaths = await uploadFiles(selectedFiles, user.id, newTicket.id);
+        
+        // Step 3: Update ticket with attachment paths
+        const { error: updateError } = await supabase
+          .from('tickets')
+          .update({ attachments: filePaths })
+          .eq('id', newTicket.id);
+
+        if (updateError) {
+          console.error('Error updating ticket with attachments:', updateError);
+          // Don't throw - the ticket was created successfully
+        }
+      }
+
+      return newTicket;
     },
     onSuccess: () => {
       showSuccess('Keluhan Anda berhasil diajukan!');
       queryClient.invalidateQueries({ queryKey: ['tickets'] });
-      queryClient.invalidateQueries({ queryKey: ['latestTickets'] }); // Invalidate latest tickets on dashboard
-      queryClient.invalidateQueries({ queryKey: ['activeTickets'] }); // Invalidate active tickets on dashboard
+      queryClient.invalidateQueries({ queryKey: ['latestTickets'] });
+      queryClient.invalidateQueries({ queryKey: ['activeTickets'] });
       form.reset();
-      setSelectedFiles([]); // Clear selected files
+      setSelectedFiles([]);
       navigate('/');
     },
-    onError: (error) => {
+    onError: (error: Error) => {
       showError(`Gagal mengajukan keluhan: ${error.message}`);
     },
   });
 
   const onSubmit = async (values: z.infer<typeof submitComplaintFormSchema>) => {
-    try {
-      let uploadedUrls: string[] = [];
-      if (selectedFiles.length > 0) {
-        if (!user?.id) {
-          showError('Pengguna tidak terautentikasi untuk mengunggah file.');
-          return;
-        }
-        // Generate a temporary ticket ID for the folder structure within the user's folder
-        const tempTicketIdForFolder = crypto.randomUUID();
-        uploadedUrls = await uploadFiles(selectedFiles, user.id, tempTicketIdForFolder);
-      }
-      submitComplaintMutation.mutate({ formData: values, attachments: uploadedUrls });
-    } catch (error) {
-      console.error('Error during file upload or form submission:', error);
-      // Error already handled by showError in uploadFiles or submitComplaintMutation
-    }
+    submitComplaintMutation.mutate(values);
   };
 
   if (loading || !session || !['admin', 'customer_service', 'sales'].includes(role || '')) {
@@ -288,6 +325,7 @@ const SubmitComplaint = () => {
                       multiple
                       onChange={handleFileChange}
                       className="hidden"
+                      accept=".jpg,.jpeg,.png,.gif,.pdf,.txt"
                       aria-label="Upload files"
                     />
                     <Button
@@ -298,6 +336,10 @@ const SubmitComplaint = () => {
                     >
                       <UploadCloud className="mr-2 h-4 w-4" /> Pilih File
                     </Button>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Maksimal {MAX_FILES} file, masing-masing maks {MAX_FILE_SIZE_MB}MB. 
+                      Format: JPG, PNG, GIF, PDF, TXT.
+                    </p>
                   </>
                 </FormControl>
                 <FormMessage />

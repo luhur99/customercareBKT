@@ -1,9 +1,9 @@
-import { useEffect, useState, ReactNode } from "react";
+import { ReactNode } from "react";
 import { Outlet, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Session } from "@supabase/supabase-js";
-import { useQuery } from "@tanstack/react-query"; // Import useQuery
+import { useQuery } from "@tanstack/react-query";
+import { useSession } from "@/components/SessionContextProvider";
 
 interface LayoutProps {
   children?: ReactNode;
@@ -15,57 +15,11 @@ interface UserProfileHeader {
 }
 
 const Layout = ({ children }: LayoutProps) => {
-  const [session, setSession] = useState<Session | null>(null);
-  const [role, setRole] = useState<string | null>(null);
+  // Consume session from context — no duplicate auth state management here
+  const { session, role } = useSession();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) fetchRole(session.user.id);
-    });
-
-    // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session) {
-        fetchRole(session.user.id);
-      } else {
-        setRole(null);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  const fetchRole = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', userId)
-        .single();
-      
-      // Handle "No rows found" (PGRST116) gracefully
-      if (error && error.code !== 'PGRST116') {
-        console.error('Error fetching role:', error);
-        return;
-      }
-      
-      if (data) {
-        setRole(data.role);
-      } else {
-        setRole(null); // Set role to null if no profile found
-      }
-    } catch (error) {
-      console.error('Error:', error);
-    }
-  };
-
-  // Fetch user profile for first_name and last_name in the header
+  // Fetch user profile name for the header display
   const { data: profileHeader } = useQuery<UserProfileHeader, Error>({
     queryKey: ['userProfileHeader', session?.user?.id],
     queryFn: async () => {
@@ -77,7 +31,6 @@ const Layout = ({ children }: LayoutProps) => {
         .single();
 
       if (error) {
-        // Handle "No rows found" (PGRST116) gracefully
         if (error.code === 'PGRST116') {
           return { first_name: null, last_name: null };
         }
@@ -87,7 +40,7 @@ const Layout = ({ children }: LayoutProps) => {
       return data || { first_name: null, last_name: null };
     },
     enabled: !!session?.user?.id,
-    staleTime: 5 * 60 * 1000, // Cache data for 5 minutes
+    staleTime: 5 * 60 * 1000,
   });
 
   const handleLogout = async () => {
@@ -115,7 +68,7 @@ const Layout = ({ children }: LayoutProps) => {
               {session && (role === 'sales' || role === 'admin' || role === 'customer_service') && (
                 <Link to="/submit-complaint" className="text-sm font-medium text-gray-700 hover:text-primary transition-colors">Ajukan Keluhan</Link>
               )}
-              {session && role === 'admin' && ( // NEW: Manage Roles link for admin
+              {session && role === 'admin' && (
                 <Link to="/manage-roles" className="text-sm font-medium text-gray-700 hover:text-primary transition-colors">Manage Roles</Link>
               )}
             </nav>
@@ -125,7 +78,7 @@ const Layout = ({ children }: LayoutProps) => {
               <>
                 <div className="text-sm hidden md:flex items-center gap-2">
                   <span className="text-gray-600">
-                    Hello, <span className="font-medium text-gray-900">{displayUserName}</span> {/* Use displayUserName here */}
+                    Hello, <span className="font-medium text-gray-900">{displayUserName}</span>
                   </span>
                   {role && (
                     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
@@ -135,7 +88,7 @@ const Layout = ({ children }: LayoutProps) => {
                         ? 'bg-blue-100 text-blue-800 border border-blue-200'
                         : 'bg-gray-100 text-gray-800'
                     }`}>
-                      {role.replace('_', ' ')}
+                      {role.replaceAll('_', ' ')}
                     </span>
                   )}
                 </div>
@@ -149,11 +102,11 @@ const Layout = ({ children }: LayoutProps) => {
           </div>
         </div>
       </header>
-      
+
       <main className="flex-1 container mx-auto px-4 py-8">
         {children || <Outlet context={{ session, role }} />}
       </main>
-      
+
       <footer className="bg-white border-t py-6 mt-auto">
         <div className="container mx-auto px-4 text-center text-sm text-gray-500">
           &copy; {new Date().getFullYear()} Ticketing System. All rights reserved.

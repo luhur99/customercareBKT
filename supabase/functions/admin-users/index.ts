@@ -1,12 +1,25 @@
-// @ts-nocheck
+/// <reference types="https://deno.land/x/supabase/edge-runtime.d.ts" />
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+const ALLOWED_ORIGINS = [
+  'https://customercarebkt.vercel.app',
+  'http://localhost:8080',
+  'http://localhost:8081',
+  'http://localhost:3000',
+  'http://localhost:5173',
+];
 
-Deno.serve(async (req) => {
+const getCorsHeaders = (origin: string) => ({
+  'Access-Control-Allow-Origin': ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+  'Vary': 'Origin',
+});
+
+Deno.serve(async (req: Request) => {
+  const origin = req.headers.get('origin') || '';
+  const corsHeaders = getCorsHeaders(origin);
+
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
@@ -93,13 +106,22 @@ Deno.serve(async (req) => {
         throw usersError;
       }
 
-      const formattedUsers = usersData.map(p => ({
+      // Fetch true created_at from auth.users and merge
+      const { data: { users: authUsers }, error: authUsersError } = await supabaseAdmin.auth.admin.listUsers();
+      const authCreatedAtMap: Record<string, string> = {};
+      if (!authUsersError && authUsers) {
+        for (const u of authUsers) {
+          authCreatedAtMap[u.id] = u.created_at;
+        }
+      }
+
+      const formattedUsers = usersData.map((p: { id: string; email?: string; first_name?: string; last_name?: string; role: string; updated_at?: string }) => ({
         id: p.id,
         email: p.email || 'N/A',
         first_name: p.first_name,
         last_name: p.last_name,
         role: p.role,
-        created_at: p.updated_at, // Mapped to updated_at for display
+        created_at: authCreatedAtMap[p.id] || p.updated_at || null,
       }));
 
       return new Response(JSON.stringify({ users: formattedUsers }), {
@@ -110,6 +132,51 @@ Deno.serve(async (req) => {
     
     else if (req.method === 'POST') {
       const body = await req.json();
+      
+      // Check if this is a delete action
+      if (body.action === 'delete') {
+        const userId = body.userId;
+        console.log(`[admin-users] Handling POST delete request: Deleting user ${userId}`);
+        
+        if (!userId) {
+          console.error('[admin-users] Missing userId for delete request');
+          return new Response(JSON.stringify({ error: 'Missing user id' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        
+        // Prevent deleting yourself
+        if (userId === user.id) {
+          console.error('[admin-users] Cannot delete self');
+          return new Response(JSON.stringify({ error: 'Cannot delete your own account' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        
+        // Delete from auth.users
+        const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+        
+        if (deleteError) {
+          console.error('[admin-users] Delete user error:', deleteError.message);
+          return new Response(JSON.stringify({ error: 'Failed to delete user', details: deleteError.message }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        
+        // Also delete from profiles table (in case cascade doesn't work)
+        await supabaseAdmin.from('profiles').delete().eq('id', userId);
+        
+        console.log('[admin-users] User deleted successfully');
+        return new Response(JSON.stringify({ message: 'User deleted successfully' }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      // Otherwise, create a new user
       console.log('[admin-users] Handling POST request: Creating user:', body.email);
       const { email, password, first_name, last_name, role: newRole } = body;
 
@@ -147,34 +214,204 @@ Deno.serve(async (req) => {
         status: 201,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
-    } 
+    }
     
     else if (req.method === 'PUT') {
       const userId = url.searchParams.get('id');
       const newRole = url.searchParams.get('role');
-      console.log(`[admin-users] Handling PUT request: Updating role for ${userId} to ${newRole}`);
+      console.log(`[admin-users] Handling PUT request for ${userId}`);
+      
+      // If role is provided, update role (backward compatibility)
+      if (userId && newRole) {
+        console.log(`[admin-users] Updating role for ${userId} to ${newRole}`);
+        
+        const { error: updateError } = await supabaseAdmin
+          .from('profiles')
+          .update({ role: newRole })
+          .eq('id', userId);
 
-      if (!userId || !newRole) {
-        console.error('[admin-users] Missing id or role for PUT request');
-        return new Response(JSON.stringify({ error: 'Missing id or role' }), {
+        console.log('[admin-users] Update role result:', { updateError });
+
+        if (updateError) {
+          console.error('[admin-users] Update error:', updateError.message);
+          throw updateError;
+        }
+
+        return new Response(JSON.stringify({ message: 'User role updated successfully' }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      // Otherwise, handle user details update (edit user)
+      if (!userId) {
+        console.error('[admin-users] Missing id for PUT request');
+        return new Response(JSON.stringify({ error: 'Missing user id' }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-
-      const { error: updateError } = await supabaseAdmin
-        .from('profiles')
-        .update({ role: newRole })
-        .eq('id', userId);
-
-      console.log('[admin-users] Update role result:', { updateError });
-
-      if (updateError) {
-        console.error('[admin-users] Update error:', updateError.message);
-        throw updateError;
+      
+      const body = await req.json();
+      const { first_name, last_name, email } = body;
+      console.log(`[admin-users] Updating user details for ${userId}:`, { first_name, last_name, email });
+      
+      // Update profile table
+      const updateData: Record<string, string> = {};
+      if (first_name !== undefined) updateData.first_name = first_name;
+      if (last_name !== undefined) updateData.last_name = last_name;
+      
+      if (Object.keys(updateData).length > 0) {
+        const { error: updateProfileError } = await supabaseAdmin
+          .from('profiles')
+          .update(updateData)
+          .eq('id', userId);
+        
+        if (updateProfileError) {
+          console.error('[admin-users] Profile update error:', updateProfileError.message);
+          return new Response(JSON.stringify({ error: 'Failed to update profile', details: updateProfileError.message }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
       }
-
-      return new Response(JSON.stringify({ message: 'User role updated successfully' }), {
+      
+      // Update email in auth if provided
+      if (email) {
+        const { error: updateEmailError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+          email: email,
+        });
+        
+        if (updateEmailError) {
+          console.error('[admin-users] Email update error:', updateEmailError.message);
+          return new Response(JSON.stringify({ error: 'Failed to update email', details: updateEmailError.message }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        
+        // Also update email in profiles table
+        const { error: updateProfileEmailError } = await supabaseAdmin
+          .from('profiles')
+          .update({ email: email })
+          .eq('id', userId);
+        
+        if (updateProfileEmailError) {
+          console.error('[admin-users] Profile email update error:', updateProfileEmailError.message);
+        }
+      }
+      
+      console.log('[admin-users] User details updated successfully');
+      return new Response(JSON.stringify({ message: 'User details updated successfully' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    
+    else if (req.method === 'PATCH') {
+      const userId = url.searchParams.get('id');
+      console.log(`[admin-users] Handling PATCH request: Updating user details for ${userId}`);
+      
+      if (!userId) {
+        console.error('[admin-users] Missing id for PATCH request');
+        return new Response(JSON.stringify({ error: 'Missing user id' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      const body = await req.json();
+      const { first_name, last_name, email } = body;
+      
+      // Update profile table
+      const updateData: Record<string, string> = {};
+      if (first_name !== undefined) updateData.first_name = first_name;
+      if (last_name !== undefined) updateData.last_name = last_name;
+      
+      if (Object.keys(updateData).length > 0) {
+        const { error: updateProfileError } = await supabaseAdmin
+          .from('profiles')
+          .update(updateData)
+          .eq('id', userId);
+        
+        if (updateProfileError) {
+          console.error('[admin-users] Profile update error:', updateProfileError.message);
+          return new Response(JSON.stringify({ error: 'Failed to update profile', details: updateProfileError.message }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      }
+      
+      // Update email in auth if provided
+      if (email) {
+        const { error: updateEmailError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+          email: email,
+        });
+        
+        if (updateEmailError) {
+          console.error('[admin-users] Email update error:', updateEmailError.message);
+          return new Response(JSON.stringify({ error: 'Failed to update email', details: updateEmailError.message }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        
+        // Also update email in profiles table
+        const { error: updateProfileEmailError } = await supabaseAdmin
+          .from('profiles')
+          .update({ email: email })
+          .eq('id', userId);
+        
+        if (updateProfileEmailError) {
+          console.error('[admin-users] Profile email update error:', updateProfileEmailError.message);
+        }
+      }
+      
+      console.log('[admin-users] User details updated successfully');
+      return new Response(JSON.stringify({ message: 'User details updated successfully' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    
+    else if (req.method === 'DELETE') {
+      const userId = url.searchParams.get('id');
+      console.log(`[admin-users] Handling DELETE request: Deleting user ${userId}`);
+      
+      if (!userId) {
+        console.error('[admin-users] Missing id for DELETE request');
+        return new Response(JSON.stringify({ error: 'Missing user id' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      // Prevent deleting yourself
+      if (userId === user.id) {
+        console.error('[admin-users] Cannot delete self');
+        return new Response(JSON.stringify({ error: 'Cannot delete your own account' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      // Delete from auth.users (this will cascade to profiles if foreign key is set up)
+      const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+      
+      if (deleteError) {
+        console.error('[admin-users] Delete user error:', deleteError.message);
+        return new Response(JSON.stringify({ error: 'Failed to delete user', details: deleteError.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      // Also delete from profiles table (in case cascade doesn't work)
+      await supabaseAdmin.from('profiles').delete().eq('id', userId);
+      
+      console.log('[admin-users] User deleted successfully');
+      return new Response(JSON.stringify({ message: 'User deleted successfully' }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -186,9 +423,10 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
-  } catch (error) {
-    console.error('[admin-users] Unhandled Exception:', error.message || 'Internal Server Error', error);
-    return new Response(JSON.stringify({ error: error.message || 'Internal Server Error' }), {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal Server Error';
+    console.error('[admin-users] Unhandled Exception:', message, err);
+    return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

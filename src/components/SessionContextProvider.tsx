@@ -1,8 +1,8 @@
-import React, { useState, useEffect, createContext, useContext, useRef, useCallback } from 'react';
+import { useState, useEffect, createContext, useContext, useRef, useCallback } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { showSuccess, showError } from '@/utils/toast';
+import { showSuccess } from '@/utils/toast';
 
 interface SessionContextType {
   session: Session | null;
@@ -21,22 +21,18 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const navigate = useNavigate();
   const location = useLocation();
 
-  // useRef untuk melacak apakah sedang mengambil profil untuk mencegah pengambilan ganda
+  // Refs to prevent duplicate fetches and track mount state
   const isFetchingProfileRef = useRef(false);
-  // useRef untuk melacak ID pengguna yang terakhir kali profilnya diambil
   const currentProfileUserIdRef = useRef<string | null>(null);
-  // useRef untuk melacak apakah komponen sudah di-mount
   const isMounted = useRef(true);
 
-  // Fungsi untuk mengambil peran pengguna, di-memoize dengan useCallback
   const fetchUserProfile = useCallback(async (userId: string) => {
-    // Jika sudah ada permintaan pengambilan profil untuk user ini, atau user ID sama, abaikan
     if (isFetchingProfileRef.current || currentProfileUserIdRef.current === userId) {
       return;
     }
 
     isFetchingProfileRef.current = true;
-    currentProfileUserIdRef.current = userId; // Set user ID yang sedang diambil
+    currentProfileUserIdRef.current = userId;
 
     try {
       const { data, error } = await supabase
@@ -45,15 +41,14 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         .eq('id', userId)
         .single();
 
-      // Pastikan komponen masih di-mount sebelum memperbarui state
       if (isMounted.current) {
-        if (error && error.code !== 'PGRST116') { // PGRST116 = "No rows found"
+        if (error && error.code !== 'PGRST116') {
           console.error('Error fetching user profile:', error);
           setRole(null);
         } else if (data) {
           setRole(data.role);
         } else {
-          setRole(null); // Set role ke null jika tidak ada profil ditemukan
+          setRole(null);
         }
       }
     } catch (error) {
@@ -66,22 +61,21 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         isFetchingProfileRef.current = false;
       }
     }
-  }, []); // Dependensi kosong karena isMounted dan isFetchingProfileRef adalah ref
+  }, []);
 
   useEffect(() => {
-    // Cleanup function untuk menandai komponen tidak lagi di-mount
     return () => {
       isMounted.current = false;
     };
   }, []);
 
+  // Auth listener — set up ONCE, never re-runs on navigation
   useEffect(() => {
-    let authSubscription: any = null; // Variabel untuk menyimpan langganan auth
+    let authSubscription: { unsubscribe: () => void } | null = null;
 
     const setupAuthListener = async () => {
-      // Ambil sesi awal
       const { data: { session: initialSession } } = await supabase.auth.getSession();
-      
+
       if (isMounted.current) {
         setSession(initialSession);
         setUser(initialSession?.user || null);
@@ -90,24 +84,18 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
           await fetchUserProfile(initialSession.user.id);
         } else {
           setRole(null);
-          // Redirect ke login jika tidak ada sesi dan bukan di halaman login
-          if (location.pathname !== '/login') {
-            navigate('/login');
-          }
         }
-        setLoading(false); // Set loading false setelah sesi awal dan peran ditentukan
+        setLoading(false);
       }
 
-      // Siapkan listener perubahan status auth
       const { data: { subscription } } = supabase.auth.onAuthStateChange(
         async (event, currentSession) => {
-          if (!isMounted.current) return; // Jangan perbarui state jika komponen sudah di-unmount
+          if (!isMounted.current) return;
 
           setSession(currentSession);
           setUser(currentSession?.user || null);
 
           if (currentSession?.user) {
-            // Reset ref untuk memungkinkan pengambilan profil baru jika user berubah
             if (currentProfileUserIdRef.current !== currentSession.user.id) {
               currentProfileUserIdRef.current = null;
             }
@@ -118,12 +106,9 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
           if (event === 'SIGNED_IN') {
             showSuccess('Logged in successfully!');
-            if (location.pathname === '/login') {
-              navigate('/'); // Redirect ke home setelah login
-            }
           } else if (event === 'SIGNED_OUT') {
             showSuccess('Logged out successfully!');
-            navigate('/login'); // Redirect ke login setelah logout
+            navigate('/login');
           }
         }
       );
@@ -132,13 +117,27 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
     setupAuthListener();
 
-    // Cleanup function untuk meng-unsubscribe listener
     return () => {
       if (authSubscription) {
         authSubscription.unsubscribe();
       }
     };
-  }, [navigate, location.pathname, fetchUserProfile]); // fetchUserProfile sebagai dependensi karena useCallback
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty deps — auth listener is set up once only
+
+  // Redirect logic — separate effect that reacts to session/loading/pathname changes
+  useEffect(() => {
+    if (!loading && !session && location.pathname !== '/login') {
+      navigate('/login');
+    }
+  }, [loading, session, location.pathname, navigate]);
+
+  // Redirect to home after login if on login page
+  useEffect(() => {
+    if (!loading && session && location.pathname === '/login') {
+      navigate('/');
+    }
+  }, [loading, session, location.pathname, navigate]);
 
   return (
     <SessionContext.Provider value={{ session, user, loading, role }}>

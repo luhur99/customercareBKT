@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Eye, Hand } from 'lucide-react';
@@ -22,9 +22,9 @@ import {
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getSlaStatus } from '@/utils/sla';
+import { formatWhatsappNumber } from '@/utils/whatsapp';
 
-// Define ticket status and priority enums (updated for agent interaction)
-const TICKET_STATUSES_FOR_AGENT = ['open', 'in_progress', 'resolved'] as const;
+// Define ticket status and priority enums
 const TICKET_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
 
 interface Ticket {
@@ -33,7 +33,7 @@ interface Ticket {
   created_at: string;
   title: string;
   description: string | null;
-  status: typeof TICKET_STATUSES_FOR_AGENT[number] | 'closed'; // Keep 'closed' for data, but not for agent setting
+  status: 'open' | 'in_progress' | 'resolved' | 'closed';
   priority: typeof TICKET_PRIORITIES[number];
   created_by: string;
   assigned_to: string | null;
@@ -44,28 +44,14 @@ interface Ticket {
   assigned_to_profile: { first_name: string | null; last_name: string | null; email: string | null; } | null;
 }
 
-// Helper function to format WhatsApp number to +62 format
-const formatWhatsappNumber = (number: string | null) => {
-  if (!number) return null;
-  let cleanedNumber = number.replace(/\D/g, ''); // Remove all non-digits
-
-  // Remove leading '0' if present
-  if (cleanedNumber.startsWith('0')) {
-    cleanedNumber = cleanedNumber.substring(1);
-  }
-
-  // Prepend '62' if it doesn't already start with '62'
-  if (!cleanedNumber.startsWith('62')) {
-    cleanedNumber = '62' + cleanedNumber;
-  }
-  return cleanedNumber;
-};
-
 const Tickets = () => {
   const { session, loading, role, user } = useSession();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<string>('unassigned'); // Default tab changed to 'unassigned'
+  const [activeTab, setActiveTab] = useState<string>('unassigned');
+  
+  // MED-01: Track pending state per ticket ID
+  const [pendingTicketId, setPendingTicketId] = useState<string | null>(null);
 
   // Redirect if not admin or customer_service
   useEffect(() => {
@@ -77,16 +63,16 @@ const Tickets = () => {
 
   // Fetch tickets based on active tab
   const { data: tickets, isLoading, error } = useQuery<Ticket[], Error>({
-    queryKey: ['tickets', activeTab, user?.id], // Query key now depends on activeTab and user.id
+    queryKey: ['tickets', activeTab, user?.id],
     queryFn: async () => {
       let query = supabase.from('tickets').select('*, ticket_number, assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email)');
 
       if (activeTab === 'unassigned') {
-        query = query.eq('status', 'open').is('assigned_to', null); // Unassigned tickets
+        query = query.eq('status', 'open').is('assigned_to', null);
       } else if (activeTab === 'in_progress') {
-        query = query.eq('status', 'in_progress').eq('assigned_to', user?.id); // My tickets (in progress)
+        query = query.eq('status', 'in_progress').eq('assigned_to', user?.id);
       } else if (activeTab === 'resolved') {
-        query = query.eq('status', 'resolved'); // Resolved tickets
+        query = query.eq('status', 'resolved');
       }
 
       const { data, error } = await query.order('created_at', { ascending: false });
@@ -98,8 +84,8 @@ const Tickets = () => {
   });
 
   // Mutation for taking a ticket
-  const takeTicketMutation = useMutation<any, Error, string>({
-    mutationFn: async (ticketId) => {
+  const takeTicketMutation = useMutation({
+    mutationFn: async (ticketId: string) => {
       if (!user?.id) throw new Error('Pengguna tidak terautentikasi.');
 
       const { data, error } = await supabase
@@ -115,14 +101,21 @@ const Tickets = () => {
       if (error) throw new Error(error.message);
       return data;
     },
+    onMutate: (ticketId) => {
+      setPendingTicketId(ticketId);
+    },
     onSuccess: () => {
       showSuccess('Tiket berhasil diambil dan status diperbarui menjadi In Progress!');
-      queryClient.invalidateQueries({ queryKey: ['tickets', 'unassigned'] }); // Refresh unassigned tab
-      queryClient.invalidateQueries({ queryKey: ['tickets', 'in_progress'] }); // Refresh my tickets tab
-      queryClient.invalidateQueries({ queryKey: ['dashboardTickets'] }); // Refresh dashboard if needed
+      // LOW-06: Invalidate all tickets queries
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['latestTickets'] });
+      queryClient.invalidateQueries({ queryKey: ['activeTickets'] });
     },
-    onError: (err) => {
+    onError: (err: Error) => {
       showError(`Gagal mengambil tiket: ${err.message}`);
+    },
+    onSettled: () => {
+      setPendingTicketId(null);
     },
   });
 
@@ -199,6 +192,7 @@ const Tickets = () => {
                   ? [ticket.assigned_to_profile.first_name, ticket.assigned_to_profile.last_name].filter(Boolean).join(' ') || ticket.assigned_to_profile.email 
                   : 'Belum Ditugaskan';
 
+                // Use shared WhatsApp formatting utility
                 const formattedWhatsapp = formatWhatsappNumber(ticket.customer_whatsapp);
 
                 return (
@@ -232,7 +226,7 @@ const Tickets = () => {
                         ticket.status === 'resolved' ? 'bg-green-100 text-green-800' :
                         'bg-gray-100 text-gray-800'
                       }`}>
-                        {ticket.status.replace('_', ' ')}
+                        {ticket.status.replaceAll('_', ' ')}
                       </span>
                     </TableCell>
                     <TableCell>
@@ -249,9 +243,10 @@ const Tickets = () => {
                             size="sm"
                             className="h-8 px-2"
                             onClick={() => takeTicketMutation.mutate(ticket.id)}
-                            disabled={takeTicketMutation.isPending}
+                            // MED-01: Only disable the specific button for the pending ticket
+                            disabled={pendingTicketId === ticket.id}
                           >
-                            {takeTicketMutation.isPending ? (
+                            {pendingTicketId === ticket.id ? (
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                             ) : (
                               <Hand className="mr-2 h-4 w-4" />

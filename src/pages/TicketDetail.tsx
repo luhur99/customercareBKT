@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, ArrowLeft, MessageSquare, User, Phone, Mail, Calendar, Tag, Info, CheckCircle, XCircle, Clock, FileText, Edit, Save, Trash2, UploadCloud, File as FileIcon } from 'lucide-react';
+import { Loader2, ArrowLeft, User, Tag, Info, XCircle, Edit, Save, Trash2, UploadCloud, File as FileIcon } from 'lucide-react';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -29,6 +29,7 @@ import {
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getSlaStatus } from '@/utils/sla';
+import { formatWhatsappNumber } from '@/utils/whatsapp';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,6 +42,13 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
+// File validation constants
+const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf', 'text/plain'];
+const MAX_FILE_SIZE_MB = 10;
+
+// Sentinel value for unassigned option
+const UNASSIGNED_SENTINEL = '__unassigned__';
+
 interface Ticket {
   id: string;
   ticket_number: string;
@@ -48,7 +56,7 @@ interface Ticket {
   title: string;
   description: string | null;
   status: 'open' | 'in_progress' | 'resolved' | 'closed';
-  priority: 'low' | 'medium' | 'high';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
   created_by: string;
   assigned_to: string | null;
   customer_name: string | null;
@@ -56,7 +64,7 @@ interface Ticket {
   resolved_at: string | null;
   resolution_steps: string | null;
   category: string | null;
-  attachments: string[] | null; // Tambahkan kolom attachments
+  attachments: string[] | null;
   creator_profile: { first_name: string | null; last_name: string | null; email: string | null; } | null;
   assigned_to_profile: { first_name: string | null; last_name: string | null; email: string | null; } | null;
 }
@@ -69,17 +77,18 @@ interface Profile {
   role: string;
 }
 
+// Updated schema to include 'urgent' priority
 const ticketSchema = z.object({
   title: z.string().min(1, 'Judul tidak boleh kosong'),
   description: z.string().optional(),
   status: z.enum(['open', 'in_progress', 'resolved', 'closed']),
-  priority: z.enum(['low', 'medium', 'high']),
-  assigned_to: z.string().nullable().optional(),
+  priority: z.enum(['low', 'medium', 'high', 'urgent']),
+  assigned_to: z.string().optional(),
   customer_name: z.string().optional(),
   customer_whatsapp: z.string().optional(),
   resolution_steps: z.string().optional(),
   category: z.string().optional(),
-  attachments: z.array(z.string()).optional(), // Tambahkan attachments ke skema
+  attachments: z.array(z.string()).optional(),
 });
 
 const TicketDetail = () => {
@@ -89,12 +98,11 @@ const TicketDetail = () => {
   const { session, loading, role, user } = useSession();
   const [isEditing, setIsEditing] = useState(false);
 
-  // State untuk mengelola file yang diunggah
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<string[]>([]);
   const [isUploadingFiles, setIsUploadingFiles] = useState(false);
-  const [signedAttachmentUrls, setSignedAttachmentUrls] = useState<Record<string, string>>({}); // State untuk menyimpan signed URLs
+  const [signedAttachmentUrls, setSignedAttachmentUrls] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!loading && !session) {
@@ -123,7 +131,7 @@ const TicketDetail = () => {
     enabled: !!session,
   });
 
-  // Fetch agents (customer_service and admin roles) for assignment
+  // Fetch agents for assignment
   const { data: agents, isLoading: isLoadingAgents } = useQuery<Profile[], Error>({
     queryKey: ['agents'],
     queryFn: async () => {
@@ -144,24 +152,24 @@ const TicketDetail = () => {
       description: '',
       status: 'open',
       priority: 'medium',
-      assigned_to: null,
+      assigned_to: '',
       customer_name: '',
       customer_whatsapp: '',
       resolution_steps: '',
       category: '',
-      attachments: [], // Default value untuk attachments
+      attachments: [],
     },
     values: {
       title: ticket?.title || '',
       description: ticket?.description || '',
       status: ticket?.status || 'open',
       priority: ticket?.priority || 'medium',
-      assigned_to: ticket?.assigned_to || null,
+      assigned_to: ticket?.assigned_to || '',
       customer_name: ticket?.customer_name || '',
       customer_whatsapp: ticket?.customer_whatsapp || '',
       resolution_steps: ticket?.resolution_steps || '',
       category: ticket?.category || '',
-      attachments: ticket?.attachments || [], // Set nilai awal attachments
+      attachments: ticket?.attachments || [],
     },
   });
 
@@ -172,37 +180,39 @@ const TicketDetail = () => {
         description: ticket.description || '',
         status: ticket.status || 'open',
         priority: ticket.priority || 'medium',
-        assigned_to: ticket.assigned_to || null,
+        assigned_to: ticket.assigned_to || '',
         customer_name: ticket.customer_name || '',
         customer_whatsapp: ticket.customer_whatsapp || '',
         resolution_steps: ticket.resolution_steps || '',
         category: ticket.category || '',
         attachments: ticket.attachments || [],
       });
-      setExistingAttachments(ticket.attachments || []); // Inisialisasi existingAttachments
+      setExistingAttachments(ticket.attachments || []);
     }
   }, [ticket, form]);
 
-  // Effect untuk menghasilkan signed URLs saat existingAttachments berubah
+  // Generate signed URLs for attachments (stored as paths now)
   useEffect(() => {
     const generateSignedUrls = async () => {
       const newSignedUrls: Record<string, string> = {};
-      for (const fileUrl of existingAttachments) {
-        // Ekstrak filePath dari public URL yang disimpan
-        const urlParts = fileUrl.split('/public/ticket-attachments/');
-        if (urlParts.length > 1) {
-          const filePath = urlParts[1];
-          const { data, error } = await supabase.storage
-            .from('ticket-attachments')
-            .createSignedUrl(filePath, 60 * 60); // URL berlaku selama 1 jam (3600 detik)
-          if (error) {
-            console.error('Error creating signed URL:', error);
-            newSignedUrls[fileUrl] = '#'; // Fallback ke '#' jika gagal
-          } else if (data?.signedUrl) {
-            newSignedUrls[fileUrl] = data.signedUrl;
-          }
-        } else {
-          newSignedUrls[fileUrl] = '#'; // Fallback jika URL tidak valid
+      for (const filePath of existingAttachments) {
+        // Check if it's already a full URL (legacy data) or just a path
+        let pathToUse = filePath;
+        if (filePath.includes('/public/ticket-attachments/')) {
+          // Legacy: extract path from URL
+          const urlParts = filePath.split('/public/ticket-attachments/');
+          pathToUse = urlParts.length > 1 ? urlParts[1] : filePath;
+        }
+        
+        const { data, error } = await supabase.storage
+          .from('ticket-attachments')
+          .createSignedUrl(pathToUse, 60 * 60 * 24); // 24 hours
+        
+        if (error) {
+          console.error('Error creating signed URL:', error);
+          newSignedUrls[filePath] = '#';
+        } else if (data?.signedUrl) {
+          newSignedUrls[filePath] = data.signedUrl;
         }
       }
       setSignedAttachmentUrls(newSignedUrls);
@@ -213,16 +223,18 @@ const TicketDetail = () => {
     } else {
       setSignedAttachmentUrls({});
     }
-  }, [existingAttachments]); // Regenerate when existingAttachments change
+  }, [existingAttachments]);
 
-  // Fungsi untuk mengunggah file ke Supabase Storage
+  // Upload files - store path only
   const uploadFiles = async (files: File[], userId: string, ticketId: string): Promise<string[]> => {
     setIsUploadingFiles(true);
-    const uploadedFileUrls: string[] = [];
+    const uploadedFilePaths: string[] = [];
+    
     for (const file of files) {
       const fileExtension = file.name.split('.').pop();
       const filePath = `${userId}/${ticketId}/${Date.now()}-${Math.random().toString(36).substring(2, 15)}.${fileExtension}`;
-      const { data, error } = await supabase.storage
+      
+      const { error } = await supabase.storage
         .from('ticket-attachments')
         .upload(filePath, file, {
           cacheControl: '3600',
@@ -234,31 +246,28 @@ const TicketDetail = () => {
         showError(`Gagal mengunggah file ${file.name}: ${error.message}`);
         setIsUploadingFiles(false);
         throw error;
-      } else {
-        const { data: publicUrlData } = supabase.storage
-          .from('ticket-attachments')
-          .getPublicUrl(filePath);
-        uploadedFileUrls.push(publicUrlData.publicUrl);
       }
+      // Store only the path
+      uploadedFilePaths.push(filePath);
     }
+    
     setIsUploadingFiles(false);
-    return uploadedFileUrls;
+    return uploadedFilePaths;
   };
 
-  // Fungsi untuk menghapus file dari Supabase Storage
-  const deleteFileFromStorage = async (fileUrl: string) => {
+  // Delete file from storage
+  const deleteFileFromStorage = async (filePath: string) => {
     try {
-      // Extract path from public URL
-      const urlParts = fileUrl.split('/public/ticket-attachments/');
-      if (urlParts.length < 2) {
-        console.error('Invalid file URL for deletion:', fileUrl);
-        return;
+      // Handle legacy URLs
+      let pathToDelete = filePath;
+      if (filePath.includes('/public/ticket-attachments/')) {
+        const urlParts = filePath.split('/public/ticket-attachments/');
+        pathToDelete = urlParts.length > 1 ? urlParts[1] : filePath;
       }
-      const filePath = urlParts[1]; // e.g., userId/ticketId/filename.ext
 
       const { error } = await supabase.storage
         .from('ticket-attachments')
-        .remove([filePath]);
+        .remove([pathToDelete]);
 
       if (error) {
         console.error('Error deleting file from storage:', error);
@@ -272,27 +281,33 @@ const TicketDetail = () => {
   };
 
   // Update ticket mutation
-  const updateTicketMutation = useMutation<any, Error, z.infer<typeof ticketSchema>>({
-    mutationFn: async (updatedTicket) => {
+  const updateTicketMutation = useMutation({
+    mutationFn: async (updatedTicket: z.infer<typeof ticketSchema>) => {
       const { status: newStatusFromForm, assigned_to: newAssignedToFromForm, resolution_steps, attachments, ...rest } = updatedTicket;
 
       let finalStatus = newStatusFromForm;
-      let finalAssignedTo = newAssignedToFromForm;
+      // Convert sentinel to null for database
+      const finalAssignedTo = newAssignedToFromForm === UNASSIGNED_SENTINEL || !newAssignedToFromForm 
+        ? null 
+        : newAssignedToFromForm;
 
       // Check if assignment changed
       const wasAssigned = ticket?.assigned_to !== null;
-      const isNowAssigned = newAssignedToFromForm !== null;
+      const isNowAssigned = finalAssignedTo !== null;
 
-      // If ticket was unassigned and is now assigned, and its status was 'open', set to 'in_progress'
+      // Auto-update status based on assignment
       if (!wasAssigned && isNowAssigned && ticket?.status === 'open') {
         finalStatus = 'in_progress';
-      }
-      // If ticket was assigned and is now unassigned, and its status was 'in_progress', set to 'open'
-      else if (wasAssigned && !isNowAssigned && ticket?.status === 'in_progress') {
+      } else if (wasAssigned && !isNowAssigned && ticket?.status === 'in_progress') {
         finalStatus = 'open';
       }
 
-      const payload: any = { ...rest, status: finalStatus, assigned_to: finalAssignedTo, attachments };
+      const payload: Record<string, unknown> = { 
+        ...rest, 
+        status: finalStatus, 
+        assigned_to: finalAssignedTo, 
+        attachments 
+      };
 
       if (finalStatus === 'resolved' && !ticket?.resolved_at) {
         payload.resolved_at = new Date().toISOString();
@@ -320,23 +335,25 @@ const TicketDetail = () => {
       queryClient.invalidateQueries({ queryKey: ['activeTickets'] });
       queryClient.invalidateQueries({ queryKey: ['resolvedTicketsByAgentCount'] });
       queryClient.invalidateQueries({ queryKey: ['assignedActiveTicketsCount'] });
-      queryClient.invalidateQueries({ queryKey: ['tickets'] }); // Invalidate general tickets query for tab updates
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
       setIsEditing(false);
-      setSelectedFiles([]); // Clear selected files after successful upload
+      setSelectedFiles([]);
     },
-    onError: (error) => {
+    onError: (error: Error) => {
       showError(`Gagal memperbarui tiket: ${error.message}`);
     },
   });
 
   // Delete ticket mutation
-  const deleteTicketMutation = useMutation<any, Error, string>({
-    mutationFn: async (ticketId) => {
-      // Before deleting the ticket, delete all associated files from storage
+  const deleteTicketMutation = useMutation({
+    mutationFn: async (ticketId: string) => {
       if (ticket?.attachments && ticket.attachments.length > 0) {
-        const filePathsToDelete = ticket.attachments.map(url => {
-          const urlParts = url.split('/public/ticket-attachments/');
-          return urlParts.length > 1 ? urlParts[1] : null;
+        const filePathsToDelete = ticket.attachments.map(filePath => {
+          if (filePath.includes('/public/ticket-attachments/')) {
+            const urlParts = filePath.split('/public/ticket-attachments/');
+            return urlParts.length > 1 ? urlParts[1] : null;
+          }
+          return filePath;
         }).filter(Boolean) as string[];
 
         if (filePathsToDelete.length > 0) {
@@ -346,10 +363,6 @@ const TicketDetail = () => {
           
           if (storageError) {
             console.error('Error deleting associated files from storage:', storageError);
-            // Decide if you want to stop deletion or proceed. For now, we'll log and proceed.
-            showError(`Gagal menghapus beberapa lampiran: ${storageError.message}`);
-          } else {
-            showSuccess('Lampiran tiket berhasil dihapus dari penyimpanan.');
           }
         }
       }
@@ -368,34 +381,31 @@ const TicketDetail = () => {
       queryClient.invalidateQueries({ queryKey: ['activeTickets'] });
       queryClient.invalidateQueries({ queryKey: ['resolvedTicketsByAgentCount'] });
       queryClient.invalidateQueries({ queryKey: ['assignedActiveTicketsCount'] });
-      queryClient.invalidateQueries({ queryKey: ['tickets'] }); // Invalidate general tickets query
-      navigate('/tickets'); // Redirect to tickets list after deletion
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      navigate('/tickets');
     },
-    onError: (error) => {
+    onError: (error: Error) => {
       showError(`Gagal menghapus tiket: ${error.message}`);
     },
   });
 
   const onSubmit = async (values: z.infer<typeof ticketSchema>) => {
-    if (!isEditing) return; // Jangan submit jika tidak dalam mode edit
+    if (!isEditing) return;
 
     try {
-      let uploadedUrls: string[] = [];
+      let uploadedPaths: string[] = [];
       if (selectedFiles.length > 0) {
         if (!user?.id || !id) {
-          showError('Pengguna tidak terautentikasi atau ID tiket tidak tersedia untuk mengunggah file.');
+          showError('Pengguna tidak terautentikasi atau ID tiket tidak tersedia.');
           return;
         }
-        uploadedUrls = await uploadFiles(selectedFiles, user.id, id);
+        uploadedPaths = await uploadFiles(selectedFiles, user.id, id);
       }
       
-      // Gabungkan lampiran yang sudah ada (setelah dihapus) dengan yang baru diunggah
-      const finalAttachments = [...existingAttachments, ...uploadedUrls];
-      
+      const finalAttachments = [...existingAttachments, ...uploadedPaths];
       updateTicketMutation.mutate({ ...values, attachments: finalAttachments });
     } catch (error) {
       console.error('Error during file upload or form submission:', error);
-      // Error sudah ditangani oleh showError di uploadFiles atau updateTicketMutation
     }
   };
 
@@ -406,8 +416,30 @@ const TicketDetail = () => {
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files) {
-      setSelectedFiles((prevFiles) => [...prevFiles, ...Array.from(event.target.files || [])]);
+    if (!event.target.files) return;
+
+    const newFiles = Array.from(event.target.files);
+    const validFiles: File[] = [];
+    const errors: string[] = [];
+
+    for (const file of newFiles) {
+      if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+        errors.push(`${file.name}: tipe file tidak didukung`);
+        continue;
+      }
+      if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+        errors.push(`${file.name}: ukuran melebihi ${MAX_FILE_SIZE_MB}MB`);
+        continue;
+      }
+      validFiles.push(file);
+    }
+
+    if (errors.length > 0) {
+      showError(`File tidak valid: ${errors.join(', ')}`);
+    }
+
+    if (validFiles.length > 0) {
+      setSelectedFiles((prevFiles) => [...prevFiles, ...validFiles]);
     }
   };
 
@@ -415,16 +447,11 @@ const TicketDetail = () => {
     setSelectedFiles((prevFiles) => prevFiles.filter((_, index) => index !== indexToRemove));
   };
 
-  const handleRemoveExistingAttachment = async (urlToRemove: string) => {
-    if (!isEditing) return; // Hanya izinkan penghapusan saat mode edit
+  const handleRemoveExistingAttachment = async (filePath: string) => {
+    if (!isEditing) return;
 
-    // Hapus dari Supabase Storage
-    await deleteFileFromStorage(urlToRemove);
-
-    // Hapus dari state lokal
-    setExistingAttachments((prevUrls) => prevUrls.filter((url) => url !== urlToRemove));
-    // Perbarui form value juga
-    form.setValue('attachments', form.getValues('attachments')?.filter(url => url !== urlToRemove) || []);
+    await deleteFileFromStorage(filePath);
+    setExistingAttachments((prev) => prev.filter((path) => path !== filePath));
   };
 
   if (isLoadingTicket || loading || isLoadingAgents) {
@@ -483,11 +510,10 @@ const TicketDetail = () => {
   const canEdit = role === 'admin' || role === 'customer_service';
   const canDelete = role === 'admin';
 
-  // Format WhatsApp number for hyperlink
-  const formattedWhatsapp = ticket.customer_whatsapp ? ticket.customer_whatsapp.replace(/\D/g, '') : ''; // Remove non-digits
+  // Use unified WhatsApp formatting
+  const formattedWhatsapp = formatWhatsappNumber(ticket.customer_whatsapp);
   const whatsappLink = formattedWhatsapp ? `https://wa.me/${formattedWhatsapp}` : '#';
 
-  // Date formatting options for Indonesian locale, 24-hour
   const dateTimeFormatOptions: Intl.DateTimeFormatOptions = {
     year: 'numeric',
     month: 'long',
@@ -496,6 +522,16 @@ const TicketDetail = () => {
     minute: '2-digit',
     second: '2-digit',
     hour12: false,
+  };
+
+  const priorityBadgeClass = (priority: string) => {
+    switch (priority) {
+      case 'low': return 'bg-green-100 text-green-800';
+      case 'medium': return 'bg-yellow-100 text-yellow-800';
+      case 'high': return 'bg-orange-100 text-orange-800';
+      case 'urgent': return 'bg-red-100 text-red-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
   };
 
   return (
@@ -540,7 +576,7 @@ const TicketDetail = () => {
                     Hapus
                   </AlertDialogAction>
                 </AlertDialogFooter>
-            </AlertDialogContent>
+              </AlertDialogContent>
             </AlertDialog>
           )}
         </div>
@@ -595,7 +631,6 @@ const TicketDetail = () => {
                     </FormItem>
                   )}
                 />
-                {/* Moved and made always visible: Problem Solving / Resolution Steps */}
                 <FormField
                   control={form.control}
                   name="resolution_steps"
@@ -620,15 +655,11 @@ const TicketDetail = () => {
                     ticket.status === 'resolved' ? 'bg-green-100 text-green-800' :
                     'bg-gray-100 text-gray-800'
                   }`}>
-                    {ticket.status.replace('_', ' ')}
+                    {ticket.status.replaceAll('_', ' ')}
                   </span>
                 </p>
                 <p><strong>Prioritas:</strong>
-                  <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
-                    ticket.priority === 'low' ? 'bg-green-100 text-green-800' :
-                    ticket.priority === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                    'bg-red-100 text-red-800'
-                  }`}>
+                  <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${priorityBadgeClass(ticket.priority)}`}>
                     {ticket.priority}
                   </span>
                 </p>
@@ -691,14 +722,14 @@ const TicketDetail = () => {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Ditugaskan Kepada</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value || ''} disabled={!isEditing}>
+                        <Select onValueChange={field.onChange} value={field.value || UNASSIGNED_SENTINEL} disabled={!isEditing}>
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Pilih agen" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value={null as any}>Belum Ditugaskan</SelectItem>
+                            <SelectItem value={UNASSIGNED_SENTINEL}>Belum Ditugaskan</SelectItem>
                             {agents?.map((agent) => (
                               <SelectItem key={agent.id} value={agent.id}>
                                 {[agent.first_name, agent.last_name].filter(Boolean).join(' ') || agent.email}
@@ -736,6 +767,29 @@ const TicketDetail = () => {
                       </FormItem>
                     )}
                   />
+                  <FormField
+                    control={form.control}
+                    name="priority"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Prioritas</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value} disabled={!isEditing}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Pilih prioritas" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="low">Low</SelectItem>
+                            <SelectItem value="medium">Medium</SelectItem>
+                            <SelectItem value="high">High</SelectItem>
+                            <SelectItem value="urgent">Urgent</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 </div>
               </CardContent>
             </Card>
@@ -748,26 +802,25 @@ const TicketDetail = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {/* Tampilan Lampiran yang Sudah Ada */}
               {existingAttachments.length > 0 && (
                 <div className="mb-4 space-y-2">
                   <p className="text-sm font-medium">Lampiran Tersimpan:</p>
-                  {existingAttachments.map((fileUrl, index) => (
+                  {existingAttachments.map((filePath, index) => (
                     <div key={index} className="flex items-center justify-between p-2 border rounded-md text-sm">
                       <a
-                        href={signedAttachmentUrls[fileUrl] || '#'}
+                        href={signedAttachmentUrls[filePath] || '#'}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-blue-600 hover:underline dark:text-blue-400 flex-1 truncate"
                       >
-                        {fileUrl.split('/').pop()} {/* Tampilkan nama file dari URL */}
+                        {filePath.split('/').pop()}
                       </a>
                       {isEditing && (
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleRemoveExistingAttachment(fileUrl)}
+                          onClick={() => handleRemoveExistingAttachment(filePath)}
                           className="h-auto p-1 ml-2"
                         >
                           <XCircle className="h-4 w-4 text-red-500" />
@@ -778,7 +831,6 @@ const TicketDetail = () => {
                 </div>
               )}
 
-              {/* Bagian Unggah File Baru (hanya terlihat saat mode edit) */}
               {isEditing && (
                 <FormItem>
                   <FormLabel>Unggah Lampiran Baru (Opsional)</FormLabel>
@@ -790,6 +842,7 @@ const TicketDetail = () => {
                         multiple
                         onChange={handleFileChange}
                         className="hidden"
+                        accept=".jpg,.jpeg,.png,.gif,.pdf,.txt"
                         aria-label="Upload files"
                       />
                       <Button
@@ -806,6 +859,9 @@ const TicketDetail = () => {
                         )}
                         Pilih File Baru
                       </Button>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Format: JPG, PNG, GIF, PDF, TXT. Maks {MAX_FILE_SIZE_MB}MB per file.
+                      </p>
                     </>
                   </FormControl>
                   <FormMessage />

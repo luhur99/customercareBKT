@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Pencil, Trash2, UserPlus } from 'lucide-react';
 
 import { useSession } from '@/components/SessionContextProvider';
 import { Button } from '@/components/ui/button';
@@ -41,6 +41,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -66,11 +76,24 @@ const createUserFormSchema = z.object({
   role: z.enum(USER_ROLES, { message: 'Please select a valid role.' }),
 });
 
+// Form schema for editing user
+const editUserFormSchema = z.object({
+  first_name: z.string().optional(),
+  last_name: z.string().optional(),
+  email: z.string().email({ message: 'Invalid email address.' }),
+});
+
+type CreateUserFormValues = z.infer<typeof createUserFormSchema>;
+type EditUserFormValues = z.infer<typeof editUserFormSchema>;
+
 const ManageRoles = () => {
-  const { session, loading, role } = useSession();
+  const { session, loading, role, user: currentUser } = useSession();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isCreateUserDialogOpen, setIsCreateUserDialogOpen] = useState(false);
+  const [isEditUserDialogOpen, setIsEditUserDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
 
   // Redirect if not admin
   useEffect(() => {
@@ -92,14 +115,14 @@ const ManageRoles = () => {
       });
 
       if (error) throw new Error(error.message);
-      if (data.error) throw new Error(data.error); // Handle errors from the edge function itself
+      if (data.error) throw new Error(data.error);
       return data.users;
     },
-    enabled: !!session && role === 'admin', // Only fetch if logged in and is admin
+    enabled: !!session && role === 'admin',
   });
 
   // Mutation for creating a new user
-  const createUserMutation = useMutation<any, Error, z.infer<typeof createUserFormSchema>>({
+  const createUserMutation = useMutation<any, Error, CreateUserFormValues>({
     mutationFn: async (newUser) => {
       const { data, error } = await supabase.functions.invoke('admin-users', {
         method: 'POST',
@@ -147,23 +170,112 @@ const ManageRoles = () => {
     },
   });
 
-  const createUserForm = useForm<z.infer<typeof createUserFormSchema>>({
+  // Mutation for editing user details
+  const editUserMutation = useMutation<any, Error, { userId: string; userData: EditUserFormValues }>({
+    mutationFn: async ({ userId, userData }) => {
+      const { data, error } = await supabase.functions.invoke(`admin-users?id=${userId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(userData),
+      });
+
+      if (error) throw new Error(error.message);
+      if (data.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      showSuccess('User details updated successfully!');
+      queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
+      setIsEditUserDialogOpen(false);
+      setSelectedUser(null);
+      editUserForm.reset();
+    },
+    onError: (error) => {
+      showError(`Failed to update user: ${error.message}`);
+    },
+  });
+
+  // Mutation for deleting a user
+  const deleteUserMutation = useMutation<any, Error, string>({
+    mutationFn: async (userId) => {
+      const { data, error } = await supabase.functions.invoke('admin-users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action: 'delete', userId }),
+      });
+
+      if (error) throw new Error(error.message);
+      if (data.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      showSuccess('User deleted successfully!');
+      queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
+      setIsDeleteDialogOpen(false);
+      setSelectedUser(null);
+    },
+    onError: (error) => {
+      showError(`Failed to delete user: ${error.message}`);
+    },
+  });
+
+  const createUserForm = useForm<CreateUserFormValues>({
     resolver: zodResolver(createUserFormSchema),
     defaultValues: {
       email: '',
       password: '',
       first_name: '',
       last_name: '',
-      role: 'customer_service', // Default role for new users changed to 'customer_service'
+      role: 'customer_service',
     },
   });
 
-  const onSubmitCreateUser = (values: z.infer<typeof createUserFormSchema>) => {
+  const editUserForm = useForm<EditUserFormValues>({
+    resolver: zodResolver(editUserFormSchema),
+    defaultValues: {
+      first_name: '',
+      last_name: '',
+      email: '',
+    },
+  });
+
+  const onSubmitCreateUser = (values: CreateUserFormValues) => {
     createUserMutation.mutate(values);
+  };
+
+  const onSubmitEditUser = (values: EditUserFormValues) => {
+    if (selectedUser) {
+      editUserMutation.mutate({ userId: selectedUser.id, userData: values });
+    }
   };
 
   const handleRoleChange = (userId: string, newRole: UserRole) => {
     updateUserRoleMutation.mutate({ userId, newRole });
+  };
+
+  const handleEditClick = (user: UserProfile) => {
+    setSelectedUser(user);
+    editUserForm.reset({
+      first_name: user.first_name || '',
+      last_name: user.last_name || '',
+      email: user.email,
+    });
+    setIsEditUserDialogOpen(true);
+  };
+
+  const handleDeleteClick = (user: UserProfile) => {
+    setSelectedUser(user);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (selectedUser) {
+      deleteUserMutation.mutate(selectedUser.id);
+    }
   };
 
   if (loading || (session && role !== 'admin')) {
@@ -194,7 +306,10 @@ const ManageRoles = () => {
       <div className="flex justify-end mb-4">
         <Dialog open={isCreateUserDialogOpen} onOpenChange={setIsCreateUserDialogOpen}>
           <DialogTrigger asChild>
-            <Button>Create New User</Button>
+            <Button>
+              <UserPlus className="mr-2 h-4 w-4" />
+              Create New User
+            </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
@@ -308,6 +423,7 @@ const ManageRoles = () => {
                 <TableHead>Last Name</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Created At</TableHead>
+                <TableHead className="text-center">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -326,21 +442,134 @@ const ManageRoles = () => {
                         <SelectValue placeholder="Select role" />
                       </SelectTrigger>
                       <SelectContent>
-                          {USER_ROLES.map((r) => (
-                            <SelectItem key={r} value={r}>
-                              {r.replace('_', ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                            </SelectItem>
-                          ))}
+                        {USER_ROLES.map((r) => (
+                          <SelectItem key={r} value={r}>
+                            {r.replace('_', ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </TableCell>
                   <TableCell>{new Date(user.created_at).toLocaleDateString()}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center justify-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => handleEditClick(user)}
+                        title="Edit user"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        onClick={() => handleDeleteClick(user)}
+                        disabled={currentUser?.id === user.id}
+                        title={currentUser?.id === user.id ? "Cannot delete yourself" : "Delete user"}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </div>
       )}
+
+      {/* Edit User Dialog */}
+      <Dialog open={isEditUserDialogOpen} onOpenChange={setIsEditUserDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Edit User</DialogTitle>
+            <DialogDescription>
+              Update the user's details below.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...editUserForm}>
+            <form onSubmit={editUserForm.handleSubmit(onSubmitEditUser)} className="space-y-4">
+              <FormField
+                control={editUserForm.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl>
+                      <Input placeholder="user@example.com" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={editUserForm.control}
+                name="first_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>First Name</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={editUserForm.control}
+                name="last_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Last Name</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsEditUserDialogOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={editUserMutation.isPending}>
+                  {editUserMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save Changes
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete User</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete <strong>{selectedUser?.email}</strong>? This action cannot be undone.
+              All data associated with this user will be permanently removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteUserMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={deleteUserMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteUserMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

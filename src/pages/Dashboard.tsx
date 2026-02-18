@@ -1,7 +1,7 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, Ticket as TicketIcon, CheckCircle, UserCheck, TrendingUp, Eye, PieChart } from 'lucide-react'; // Changed Percent to PieChart
+import { Loader2, Ticket as TicketIcon, CheckCircle, UserCheck, TrendingUp, Eye, PieChart, Share2 } from 'lucide-react';
 
 import { useSession } from '@/components/SessionContextProvider';
 import { Button } from '@/components/ui/button';
@@ -14,33 +14,20 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { showSuccess, showError } from '@/utils/toast';
+import { showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getSlaStatus } from '@/utils/sla';
 
-interface Ticket {
+interface LatestTicket {
   id: string;
   ticket_number: string;
   created_at: string;
   title: string;
-  description: string | null;
   status: string;
   priority: string;
-  created_by: string;
   assigned_to: string | null;
-  customer_name: string | null;
-  customer_whatsapp: string | null;
   resolved_at: string | null;
-  category: string;
-  assigned_to_profile: { first_name: string | null; last_name: string | null; email: string | null; } | null;
-}
-
-interface Profile {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  role: string;
-  email: string;
+  assigned_to_profile: { first_name: string | null; last_name: string | null; email: string | null; }[] | null;
 }
 
 const Dashboard = () => {
@@ -54,41 +41,43 @@ const Dashboard = () => {
     }
   }, [session, loading, navigate]);
 
-  // Query for all tickets (for sales role)
-  const { data: allTickets, isLoading: isLoadingAllTickets } = useQuery<Ticket[], Error>({
-    queryKey: ['allTickets'],
+  // Query for all tickets count (for sales role) - using count
+  const { data: allTicketsCount, isLoading: isLoadingAllTickets } = useQuery<number, Error>({
+    queryKey: ['allTicketsCount'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('tickets').select('*');
+      const { count, error } = await supabase
+        .from('tickets')
+        .select('*', { count: 'exact', head: true });
       if (error) throw new Error(error.message);
-      return data;
+      return count || 0;
     },
     enabled: !!session && role === 'sales',
   });
 
-  // Query for active tickets (for admin/customer_service roles)
-  const { data: activeTickets, isLoading: isLoadingActiveTickets } = useQuery<Ticket[], Error>({
-    queryKey: ['activeTickets'],
+  // Query for active tickets count (for admin/customer_service roles) - using count
+  const { data: activeTicketsCount, isLoading: isLoadingActiveTickets } = useQuery<number, Error>({
+    queryKey: ['activeTicketsCount'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { count, error } = await supabase
         .from('tickets')
-        .select('*')
-        .neq('status', 'closed'); // Active tickets are not closed
+        .select('*', { count: 'exact', head: true })
+        .neq('status', 'closed');
       if (error) throw new Error(error.message);
-      return data;
+      return count || 0;
     },
     enabled: !!session && (role === 'admin' || role === 'customer_service'),
   });
 
-  // Query for resolved tickets by the current agent
+  // Query for resolved tickets by the current agent - using count
   const { data: resolvedTicketsByAgentCount, isLoading: isLoadingResolvedTicketsByAgent } = useQuery<number, Error>({
     queryKey: ['resolvedTicketsByAgentCount', user?.id],
     queryFn: async () => {
       if (!user?.id) return 0;
       const { count, error } = await supabase
         .from('tickets')
-        .select('*', { count: 'exact' })
+        .select('*', { count: 'exact', head: true })
         .eq('assigned_to', user.id)
-        .eq('status', 'resolved'); // Count tickets resolved by the current agent
+        .eq('status', 'resolved');
 
       if (error) throw new Error(error.message);
       return count || 0;
@@ -96,16 +85,16 @@ const Dashboard = () => {
     enabled: !!session && (role === 'admin' || role === 'customer_service') && !!user?.id,
   });
 
-  // Query: Tickets assigned to the current agent that are still active
+  // Query: Tickets assigned to the current agent that are in_progress - using count
   const { data: assignedActiveTicketsCount, isLoading: isLoadingAssignedActiveTickets } = useQuery<number, Error>({
     queryKey: ['assignedActiveTicketsCount', user?.id],
     queryFn: async () => {
       if (!user?.id) return 0;
       const { count, error } = await supabase
         .from('tickets')
-        .select('*', { count: 'exact' })
+        .select('*', { count: 'exact', head: true })
         .eq('assigned_to', user.id)
-        .eq('status', 'in_progress'); // Changed filter to explicitly count 'in_progress' tickets
+        .eq('status', 'in_progress');
 
       if (error) throw new Error(error.message);
       return count || 0;
@@ -113,26 +102,21 @@ const Dashboard = () => {
     enabled: !!session && (role === 'admin' || role === 'customer_service') && !!user?.id,
   });
 
-  // Query for profiles (for admin/customer_service to see agents) - still needed for agent count if desired elsewhere
-  const { data: profiles, isLoading: isLoadingProfiles } = useQuery<Profile[], Error>({
-    queryKey: ['profiles'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('profiles').select('*');
-      if (error) throw new Error(error.message);
-      return data;
-    },
-    enabled: !!session && (role === 'admin' || role === 'customer_service'),
-    staleTime: 10 * 60 * 1000, // Cache for 10 minutes
-  });
-
-  // Query for the 15 latest tickets
-  const { data: latestTickets, isLoading: isLoadingLatestTickets } = useQuery<Ticket[], Error>({
+  // Query for the 15 latest tickets (still needs full data for display)
+  const { data: latestTickets, isLoading: isLoadingLatestTickets } = useQuery<LatestTicket[], Error>({
     queryKey: ['latestTickets'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('tickets')
         .select(`
-          *,
+          id,
+          ticket_number,
+          created_at,
+          title,
+          status,
+          priority,
+          assigned_to,
+          resolved_at,
           assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email)
         `)
         .order('created_at', { ascending: false })
@@ -144,7 +128,7 @@ const Dashboard = () => {
     enabled: !!session && (role === 'admin' || role === 'customer_service'),
   });
 
-  // Query: Calculate SLA Performance Percentage
+  // Query: Calculate SLA Performance Percentage - only select needed columns
   const { data: slaPerformancePercentage, isLoading: isLoadingSlaPerformance } = useQuery<number, Error>({
     queryKey: ['slaPerformancePercentage'],
     queryFn: async () => {
@@ -163,7 +147,7 @@ const Dashboard = () => {
     enabled: !!session && (role === 'admin' || role === 'customer_service'),
   });
 
-  // NEW Query: Calculate Ticket Status Percentages (Open, In Progress, Resolved)
+  // Query: Calculate Ticket Status Percentages - only select status column
   const { data: ticketStatusPercentages, isLoading: isLoadingTicketStatusPercentages } = useQuery<{ open: number; inProgress: number; resolved: number }, Error>({
     queryKey: ['ticketStatusPercentages'],
     queryFn: async () => {
@@ -178,7 +162,7 @@ const Dashboard = () => {
 
       const openCount = data.filter(ticket => ticket.status === 'open').length;
       const inProgressCount = data.filter(ticket => ticket.status === 'in_progress').length;
-      const resolvedCount = data.filter(ticket => ticket.status === 'resolved' || ticket.status === 'closed').length; // Consider 'closed' as resolved
+      const resolvedCount = data.filter(ticket => ticket.status === 'resolved' || ticket.status === 'closed').length;
 
       return {
         open: (openCount / totalTickets) * 100,
@@ -189,8 +173,9 @@ const Dashboard = () => {
     enabled: !!session && (role === 'admin' || role === 'customer_service'),
   });
 
+  const isLoading = loading || isLoadingAllTickets || isLoadingActiveTickets || isLoadingResolvedTicketsByAgent || isLoadingLatestTickets || isLoadingAssignedActiveTickets || isLoadingSlaPerformance || isLoadingTicketStatusPercentages;
 
-  if (loading || isLoadingAllTickets || isLoadingActiveTickets || isLoadingProfiles || isLoadingResolvedTicketsByAgent || isLoadingLatestTickets || isLoadingAssignedActiveTickets || isLoadingSlaPerformance || isLoadingTicketStatusPercentages) {
+  if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
@@ -214,7 +199,7 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {role === 'sales' ? allTickets?.length : activeTickets?.length}
+              {role === 'sales' ? allTicketsCount : activeTicketsCount}
             </div>
           </CardContent>
         </Card>
@@ -273,7 +258,7 @@ const Dashboard = () => {
           </Card>
         )}
 
-        {/* NEW Card: Ticket Status Percentages */}
+        {/* Card: Ticket Status Percentages */}
         {(role === 'admin' || role === 'customer_service') && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -345,17 +330,18 @@ const Dashboard = () => {
                           ? 'bg-yellow-100 text-yellow-800'
                           : 'bg-red-100 text-red-800';
                       
-                      const assignedAgentName = ticket.assigned_to_profile 
-                        ? [ticket.assigned_to_profile.first_name, ticket.assigned_to_profile.last_name].filter(Boolean).join(' ') || ticket.assigned_to_profile.email 
+                      const profile = ticket.assigned_to_profile?.[0];
+                      const assignedAgentName = profile 
+                        ? [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.email 
                         : 'Belum Ditugaskan';
 
-                      // Construct the WhatsApp share link
+                      // WhatsApp share link
                       const ticketDetailUrl = `${window.location.origin}/tickets/${ticket.id}`;
                       const whatsappMessage = encodeURIComponent(
                         `Halo, saya ingin berbagi detail tiket ini dengan Anda:\n\n` +
                         `No. Tiket: ${ticket.ticket_number}\n` +
                         `Judul: ${ticket.title}\n` +
-                        `Status: ${ticket.status.replace('_', ' ')}\n` +
+                        `Status: ${ticket.status.replaceAll('_', ' ')}\n` +
                         `Prioritas: ${ticket.priority}\n` +
                         `Lihat detail lengkap di: ${ticketDetailUrl}`
                       );
@@ -363,15 +349,14 @@ const Dashboard = () => {
 
                       return (
                         <TableRow key={ticket.id}>
+                          {/* MED-02: Ticket number now links to detail page */}
                           <TableCell className="font-medium">
-                            <a 
-                              href={whatsappShareLink} 
-                              target="_blank" 
-                              rel="noopener noreferrer" 
+                            <Link 
+                              to={`/tickets/${ticket.id}`}
                               className="text-blue-600 hover:underline dark:text-blue-400"
                             >
                               {ticket.ticket_number}
-                            </a>
+                            </Link>
                           </TableCell>
                           <TableCell>{ticket.title}</TableCell>
                           <TableCell>{new Date(ticket.created_at).toLocaleDateString()}</TableCell>
@@ -382,7 +367,7 @@ const Dashboard = () => {
                               ticket.status === 'resolved' ? 'bg-green-100 text-green-800' :
                               'bg-gray-100 text-gray-800'
                             }`}>
-                              {ticket.status.replace('_', ' ')}
+                              {ticket.status.replaceAll('_', ' ')}
                             </span>
                           </TableCell>
                           <TableCell>{assignedAgentName}</TableCell>
@@ -392,12 +377,25 @@ const Dashboard = () => {
                             </span>
                           </TableCell>
                           <TableCell className="text-right">
-                            <Link to={`/tickets/${ticket.id}`}>
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                <Eye className="h-4 w-4" />
-                                <span className="sr-only">Lihat Detail</span>
-                              </Button>
-                            </Link>
+                            <div className="flex items-center justify-end gap-1">
+                              {/* WhatsApp share button */}
+                              <a
+                                href={whatsappShareLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center justify-center h-8 w-8 p-0 hover:bg-gray-100 rounded-md"
+                                title="Bagikan via WhatsApp"
+                              >
+                                <Share2 className="h-4 w-4 text-green-600" />
+                              </a>
+                              {/* View detail button */}
+                              <Link to={`/tickets/${ticket.id}`}>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                  <Eye className="h-4 w-4" />
+                                  <span className="sr-only">Lihat Detail</span>
+                                </Button>
+                              </Link>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
