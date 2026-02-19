@@ -23,7 +23,8 @@ export default defineConfig(({ mode }) => ({
         manualChunks: {
           "vendor-react": ["react", "react-dom", "react-router-dom"],
           "vendor-query": ["@tanstack/react-query"],
-          "vendor-supabase": ["@supabase/supabase-js", "@supabase/auth-ui-react", "@supabase/auth-ui-shared"],
+          // Let Rollup decide chunking for Supabase packages to avoid cross-chunk React
+          // references which can cause `createContext` to be undefined at runtime.
           "vendor-charts": ["recharts"],
           "vendor-ui": [
             "@radix-ui/react-accordion",
