@@ -139,8 +139,8 @@ const ManageRoles = () => {
     onSuccess: () => {
       showSuccess('User created successfully!');
       queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
-      setIsCreateUserDialogOpen(false);
       createUserForm.reset();
+      setIsCreateUserDialogOpen(false);
     },
     onError: (error) => {
       showError(`Failed to create user: ${error.message}`);
@@ -188,9 +188,9 @@ const ManageRoles = () => {
     onSuccess: () => {
       showSuccess('User details updated successfully!');
       queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
-      setIsEditUserDialogOpen(false);
-      setSelectedUser(null);
       editUserForm.reset();
+      setSelectedUser(null);
+      setIsEditUserDialogOpen(false);
     },
     onError: (error) => {
       showError(`Failed to update user: ${error.message}`);
@@ -457,7 +457,7 @@ const ManageRoles = () => {
                         variant="outline"
                         size="icon"
                         onClick={() => handleEditClick(user)}
-                        title="Edit user"
+                        aria-label="Edit user"
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -466,7 +466,7 @@ const ManageRoles = () => {
                         size="icon"
                         onClick={() => handleDeleteClick(user)}
                         disabled={currentUser?.id === user.id}
-                        title={currentUser?.id === user.id ? "Cannot delete yourself" : "Delete user"}
+                        aria-label={currentUser?.id === user.id ? "Cannot delete yourself" : "Delete user"}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>

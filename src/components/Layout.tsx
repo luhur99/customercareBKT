@@ -44,7 +44,11 @@ const Layout = ({ children }: LayoutProps) => {
   });
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // signOut failed but we still clear local state via onAuthStateChange
+    }
     navigate("/login");
   };
 

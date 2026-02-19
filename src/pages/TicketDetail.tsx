@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Loader2, ArrowLeft, User, Tag, Info, XCircle, Edit, Save, Trash2, UploadCloud, File as FileIcon } from 'lucide-react';
 import { z } from 'zod';
@@ -30,6 +30,7 @@ import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getSlaStatus } from '@/utils/sla';
 import { formatWhatsappNumber } from '@/utils/whatsapp';
+import { ALLOWED_FILE_TYPES, MAX_FILE_SIZE_MB, uploadFilesToStorage } from '@/utils/fileUpload';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,10 +42,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-
-// File validation constants
-const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf', 'text/plain'];
-const MAX_FILE_SIZE_MB = 10;
 
 // Sentinel value for unassigned option
 const UNASSIGNED_SENTINEL = '__unassigned__';
@@ -191,93 +188,55 @@ const TicketDetail = () => {
     }
   }, [ticket, form]);
 
-  // Generate signed URLs for attachments (stored as paths now)
+  // Generate signed URLs for attachments in parallel
   useEffect(() => {
+    if (existingAttachments.length === 0) {
+      setSignedAttachmentUrls({});
+      return;
+    }
+
     const generateSignedUrls = async () => {
-      const newSignedUrls: Record<string, string> = {};
-      for (const filePath of existingAttachments) {
-        // Check if it's already a full URL (legacy data) or just a path
-        let pathToUse = filePath;
-        if (filePath.includes('/public/ticket-attachments/')) {
-          // Legacy: extract path from URL
-          const urlParts = filePath.split('/public/ticket-attachments/');
-          pathToUse = urlParts.length > 1 ? urlParts[1] : filePath;
-        }
-        
-        const { data, error } = await supabase.storage
-          .from('ticket-attachments')
-          .createSignedUrl(pathToUse, 60 * 60 * 24); // 24 hours
-        
-        if (error) {
-          console.error('Error creating signed URL:', error);
-          newSignedUrls[filePath] = '#';
-        } else if (data?.signedUrl) {
-          newSignedUrls[filePath] = data.signedUrl;
-        }
-      }
-      setSignedAttachmentUrls(newSignedUrls);
+      const entries = await Promise.all(
+        existingAttachments.map(async (filePath) => {
+          // Handle legacy full-URL format by extracting just the path
+          let pathToUse = filePath;
+          const legacyMarker = '/object/public/ticket-attachments/';
+          if (filePath.includes(legacyMarker)) {
+            pathToUse = filePath.split(legacyMarker)[1] ?? filePath;
+          }
+
+          const { data, error } = await supabase.storage
+            .from('ticket-attachments')
+            .createSignedUrl(pathToUse, 60 * 60 * 24); // 24 hours
+
+          if (error || !data?.signedUrl) return [filePath, '#'] as const;
+          return [filePath, data.signedUrl] as const;
+        }),
+      );
+      setSignedAttachmentUrls(Object.fromEntries(entries));
     };
 
-    if (existingAttachments.length > 0) {
-      generateSignedUrls();
-    } else {
-      setSignedAttachmentUrls({});
-    }
+    generateSignedUrls();
   }, [existingAttachments]);
-
-  // Upload files - store path only
-  const uploadFiles = async (files: File[], userId: string, ticketId: string): Promise<string[]> => {
-    setIsUploadingFiles(true);
-    const uploadedFilePaths: string[] = [];
-    
-    for (const file of files) {
-      const fileExtension = file.name.split('.').pop();
-      const filePath = `${userId}/${ticketId}/${Date.now()}-${Math.random().toString(36).substring(2, 15)}.${fileExtension}`;
-      
-      const { error } = await supabase.storage
-        .from('ticket-attachments')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false,
-        });
-
-      if (error) {
-        console.error('Error uploading file:', error);
-        showError(`Gagal mengunggah file ${file.name}: ${error.message}`);
-        setIsUploadingFiles(false);
-        throw error;
-      }
-      // Store only the path
-      uploadedFilePaths.push(filePath);
-    }
-    
-    setIsUploadingFiles(false);
-    return uploadedFilePaths;
-  };
 
   // Delete file from storage
   const deleteFileFromStorage = async (filePath: string) => {
-    try {
-      // Handle legacy URLs
-      let pathToDelete = filePath;
-      if (filePath.includes('/public/ticket-attachments/')) {
-        const urlParts = filePath.split('/public/ticket-attachments/');
-        pathToDelete = urlParts.length > 1 ? urlParts[1] : filePath;
-      }
-
-      const { error } = await supabase.storage
-        .from('ticket-attachments')
-        .remove([pathToDelete]);
-
-      if (error) {
-        console.error('Error deleting file from storage:', error);
-        showError(`Gagal menghapus file dari penyimpanan: ${error.message}`);
-        throw error;
-      }
-      showSuccess('File berhasil dihapus dari penyimpanan.');
-    } catch (error) {
-      console.error('Error in deleteFileFromStorage:', error);
+    // Handle legacy full-URL format
+    let pathToDelete = filePath;
+    const legacyMarker = '/object/public/ticket-attachments/';
+    if (filePath.includes(legacyMarker)) {
+      pathToDelete = filePath.split(legacyMarker)[1] ?? filePath;
     }
+
+    const { error } = await supabase.storage
+      .from('ticket-attachments')
+      .remove([pathToDelete]);
+
+    if (error) {
+      showError(`Gagal menghapus file dari penyimpanan: ${error.message}`);
+      throw error;
+    }
+    showSuccess('File berhasil dihapus dari penyimpanan.');
   };
 
   // Update ticket mutation
@@ -348,10 +307,10 @@ const TicketDetail = () => {
   const deleteTicketMutation = useMutation({
     mutationFn: async (ticketId: string) => {
       if (ticket?.attachments && ticket.attachments.length > 0) {
+        const legacyMarker = '/object/public/ticket-attachments/';
         const filePathsToDelete = ticket.attachments.map(filePath => {
-          if (filePath.includes('/public/ticket-attachments/')) {
-            const urlParts = filePath.split('/public/ticket-attachments/');
-            return urlParts.length > 1 ? urlParts[1] : null;
+          if (filePath.includes(legacyMarker)) {
+            return filePath.split(legacyMarker)[1] ?? null;
           }
           return filePath;
         }).filter(Boolean) as string[];
@@ -392,21 +351,25 @@ const TicketDetail = () => {
   const onSubmit = async (values: z.infer<typeof ticketSchema>) => {
     if (!isEditing) return;
 
-    try {
-      let uploadedPaths: string[] = [];
-      if (selectedFiles.length > 0) {
-        if (!user?.id || !id) {
-          showError('Pengguna tidak terautentikasi atau ID tiket tidak tersedia.');
-          return;
-        }
-        uploadedPaths = await uploadFiles(selectedFiles, user.id, id);
+    let uploadedPaths: string[] = [];
+    if (selectedFiles.length > 0) {
+      if (!user?.id || !id) {
+        showError('Pengguna tidak terautentikasi atau ID tiket tidak tersedia.');
+        return;
       }
-      
-      const finalAttachments = [...existingAttachments, ...uploadedPaths];
-      updateTicketMutation.mutate({ ...values, attachments: finalAttachments });
-    } catch (error) {
-      console.error('Error during file upload or form submission:', error);
+      setIsUploadingFiles(true);
+      try {
+        uploadedPaths = await uploadFilesToStorage(selectedFiles, user.id, id);
+      } catch (error) {
+        showError(error instanceof Error ? error.message : 'Gagal mengunggah file.');
+        setIsUploadingFiles(false);
+        return;
+      }
+      setIsUploadingFiles(false);
     }
+
+    const finalAttachments = [...existingAttachments, ...uploadedPaths];
+    updateTicketMutation.mutate({ ...values, attachments: finalAttachments });
   };
 
   const handleDelete = () => {
@@ -822,6 +785,7 @@ const TicketDetail = () => {
                           size="sm"
                           onClick={() => handleRemoveExistingAttachment(filePath)}
                           className="h-auto p-1 ml-2"
+                          aria-label="Hapus lampiran"
                         >
                           <XCircle className="h-4 w-4 text-red-500" />
                         </Button>
@@ -877,6 +841,7 @@ const TicketDetail = () => {
                             size="sm"
                             onClick={() => handleRemoveSelectedFile(index)}
                             className="h-auto p-1"
+                            aria-label={`Hapus file ${file.name}`}
                           >
                             <XCircle className="h-4 w-4 text-red-500" />
                           </Button>

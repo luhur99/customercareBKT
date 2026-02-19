@@ -26,12 +26,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { showSuccess, showError } from '@/utils/toast';
+import { showSuccess, showError, showWarning } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
+import { ALLOWED_FILE_TYPES, MAX_FILE_SIZE_MB, uploadFilesToStorage } from '@/utils/fileUpload';
 
-// File validation constants
-const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf', 'text/plain'];
-const MAX_FILE_SIZE_MB = 10;
 const MAX_FILES = 5;
 
 // Define available complaint categories
@@ -59,7 +57,6 @@ const SubmitComplaint = () => {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [isUploadingFiles, setIsUploadingFiles] = useState(false);
 
   // Redirect if not logged in or unauthorized role
   useEffect(() => {
@@ -124,42 +121,12 @@ const SubmitComplaint = () => {
     setSelectedFiles((prevFiles) => prevFiles.filter((_, index) => index !== indexToRemove));
   };
 
-  // Upload files using real ticket ID
-  const uploadFiles = async (files: File[], userId: string, ticketId: string): Promise<string[]> => {
-    setIsUploadingFiles(true);
-    const uploadedFilePaths: string[] = [];
-    
-    for (const file of files) {
-      const fileExtension = file.name.split('.').pop();
-      const filePath = `${userId}/${ticketId}/${Date.now()}-${Math.random().toString(36).substring(2, 15)}.${fileExtension}`;
-      
-      const { error } = await supabase.storage
-        .from('ticket-attachments')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false,
-        });
-
-      if (error) {
-        console.error('Error uploading file:', error);
-        showError(`Gagal mengunggah file ${file.name}: ${error.message}`);
-        setIsUploadingFiles(false);
-        throw error;
-      }
-      // Store only the file path, not the full URL
-      uploadedFilePaths.push(filePath);
-    }
-    
-    setIsUploadingFiles(false);
-    return uploadedFilePaths;
-  };
-
-  // Mutation for submitting a new complaint (now handles two-step process)
+  // Mutation for submitting a new complaint (two-step: create ticket, then upload files)
   const submitComplaintMutation = useMutation({
     mutationFn: async (formData: z.infer<typeof submitComplaintFormSchema>) => {
       if (!user) throw new Error('Pengguna tidak terautentikasi.');
 
-      // Step 1: Create ticket first (without attachments)
+      // Step 1: Create ticket without attachments
       const { data: newTicket, error: insertError } = await supabase
         .from('tickets')
         .insert({
@@ -179,19 +146,23 @@ const SubmitComplaint = () => {
       if (insertError) throw new Error(insertError.message);
       if (!newTicket) throw new Error('Gagal membuat tiket.');
 
-      // Step 2: Upload files with real ticket ID if there are files
+      // Step 2: Upload files and attach to ticket
       if (selectedFiles.length > 0) {
-        const filePaths = await uploadFiles(selectedFiles, user.id, newTicket.id);
-        
-        // Step 3: Update ticket with attachment paths
+        let filePaths: string[];
+        try {
+          filePaths = await uploadFilesToStorage(selectedFiles, user.id, newTicket.id);
+        } catch (uploadError) {
+          showWarning('Tiket dibuat, tetapi lampiran gagal diunggah. Silakan edit tiket untuk menambahkan lampiran.');
+          return newTicket;
+        }
+
         const { error: updateError } = await supabase
           .from('tickets')
           .update({ attachments: filePaths })
           .eq('id', newTicket.id);
 
         if (updateError) {
-          console.error('Error updating ticket with attachments:', updateError);
-          // Don't throw - the ticket was created successfully
+          showWarning('Tiket dibuat, tetapi gagal menyimpan referensi lampiran.');
         }
       }
 
@@ -364,8 +335,8 @@ const SubmitComplaint = () => {
                 )}
               </FormItem>
 
-              <Button type="submit" className="w-full" disabled={submitComplaintMutation.isPending || isUploadingFiles}>
-                {(submitComplaintMutation.isPending || isUploadingFiles) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              <Button type="submit" className="w-full" disabled={submitComplaintMutation.isPending}>
+                {submitComplaintMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 <Send className="mr-2 h-4 w-4" /> Ajukan Keluhan
               </Button>
             </form>
