@@ -7,12 +7,15 @@ const ALLOWED_ORIGINS = [
   'http://localhost:8081',
   'http://localhost:3000',
   'http://localhost:5173',
+  'http://localhost:4173',
+  'http://localhost:4174',
 ];
 
 const getCorsHeaders = (origin: string) => ({
   'Access-Control-Allow-Origin': ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+  'Access-Control-Allow-Credentials': 'true',
   'Vary': 'Origin',
 });
 
