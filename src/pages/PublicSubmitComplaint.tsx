@@ -87,7 +87,7 @@ const PublicSubmitComplaint = () => {
       //   throw new Error('Silakan selesaikan verifikasi Turnstile.');
       // }
 
-      const response = await supabase.functions.invoke('public-submit-ticket', {
+      const response = await supabase.functions.invoke('quick-responder', {
         body: {
           title: formData.title,
           description: formData.description,
@@ -96,7 +96,8 @@ const PublicSubmitComplaint = () => {
           category: formData.category,
           no_plat_kendaraan: formData.no_plat_kendaraan,
           no_simcard_gps: formData.no_simcard_gps,
-          cf_turnstile_token: turnstileToken || 'test-token',
+          // Temporary: Bypass Turnstile for testing flow
+          cf_turnstile_token: turnstileToken || 'bypass-testing',
         },
       });
 
@@ -322,7 +323,11 @@ const PublicSubmitComplaint = () => {
                 <FormControl>
                   <Turnstile
                     sitekey={import.meta.env.VITE_TURNSTILE_SITE_KEY || ''}
-                    onToken={setTurnstileToken}
+                    onToken={(token) => {
+                      setTurnstileToken(token);
+                      form.setValue('cf_turnstile_token', token, { shouldValidate: true });
+                      console.log('[PublicSubmit] Turnstile token acquired');
+                    }}
                   />
                 </FormControl>
                 <FormMessage />
