@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2, Send } from 'lucide-react';
+import { Turnstile } from 'react-turnstile';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -57,13 +58,17 @@ const publicSubmitComplaintSchema = z.object({
     .regex(/^08\d{0,13}$/, {
       message: 'No simcard harus angka, diawali 08, maksimal 15 digit.',
     }),
-  cf_turnstile_token: z.string().optional(), // Temporary: Optional for testing
+  cf_turnstile_token: z.string().optional(), // Optional for localhost, enforced in production
 });
 
 const PublicSubmitComplaint = () => {
   const navigate = useNavigate();
   const [turnstileToken, setTurnstileToken] = useState<string>('');
   const [successTicketNumber, setSuccessTicketNumber] = useState<string>('');
+  const [turnstileError, setTurnstileError] = useState<boolean>(false);
+  
+  // Check if running in development (localhost)
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
   const form = useForm<z.infer<typeof publicSubmitComplaintSchema>>({
     resolver: zodResolver(publicSubmitComplaintSchema),
@@ -79,12 +84,22 @@ const PublicSubmitComplaint = () => {
     },
   });
 
+  // Auto-set bypass token for localhost development
+  useEffect(() => {
+    if (isLocalhost) {
+      const bypassToken = 'bypass-test-token-local';
+      setTurnstileToken(bypassToken);
+      form.setValue('cf_turnstile_token', bypassToken);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLocalhost]);
+
   const submitComplaintMutation = useMutation({
     mutationFn: async (formData: z.infer<typeof publicSubmitComplaintSchema>) => {
-      // Temporary: Skip Turnstile check for testing
-      // if (!turnstileToken) {
-      //   throw new Error('Silakan selesaikan verifikasi Turnstile.');
-      // }
+      // For production, enforce Turnstile validation
+      if (!isLocalhost && !turnstileToken) {
+        throw new Error('Silakan selesaikan verifikasi keamanan terlebih dahulu.');
+      }
 
       const response = await supabase.functions.invoke('public-submit-ticket', {
         body: {
@@ -95,8 +110,7 @@ const PublicSubmitComplaint = () => {
           category: formData.category,
           no_plat_kendaraan: formData.no_plat_kendaraan,
           no_simcard_gps: formData.no_simcard_gps,
-          // Temporary: Bypass Turnstile for testing flow
-          cf_turnstile_token: turnstileToken || 'bypass-test-token-local',
+          cf_turnstile_token: turnstileToken || (isLocalhost ? 'bypass-test-token-local' : ''),
         },
       });
 
@@ -320,11 +334,57 @@ const PublicSubmitComplaint = () => {
               <FormItem>
                 <FormLabel>Verifikasi Keamanan</FormLabel>
                 <FormControl>
-                  {/* Temporarily disable Turnstile widget for localhost testing due to 400 errors */}
-                  {/* Turnstile will be re-enabled in production */}
-                  <div className="p-3 bg-yellow-100 dark:bg-yellow-900 border border-yellow-300 dark:border-yellow-700 rounded text-sm text-yellow-800 dark:text-yellow-200">
-                    Verifikasi keamanan sedang dalam testing. Silakan lanjutkan.
-                  </div>
+                  {isLocalhost ? (
+                    <div className="p-3 bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded text-sm">
+                      <p className="text-blue-800 dark:text-blue-200 font-medium mb-1">🔧 Mode Development</p>
+                      <p className="text-blue-700 dark:text-blue-300 text-xs">
+                        Verifikasi keamanan Turnstile di-bypass untuk testing lokal.
+                        <br />
+                        <strong>Catatan:</strong> Di production (customercarebkt.vercel.app), verifikasi keamanan akan aktif penuh.
+                      </p>
+                    </div>
+                  ) : turnstileError ? (
+                    <div className="p-3 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded text-sm">
+                      <p className="text-red-800 dark:text-red-200 font-medium mb-1">⚠️ Error Loading Security Widget</p>
+                      <p className="text-red-700 dark:text-red-300 text-xs">
+                        Gagal memuat verifikasi keamanan. Silakan:
+                        <br />• Refresh halaman ini
+                        <br />• Periksa koneksi internet
+                        <br />• Pastikan domain terdaftar di Cloudflare Turnstile
+                      </p>
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        size="sm" 
+                        className="mt-2 w-full"
+                        onClick={() => window.location.reload()}
+                      >
+                        Refresh Halaman
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex justify-center">
+                      <Turnstile
+                        sitekey={import.meta.env.VITE_TURNSTILE_SITE_KEY || ''}
+                        onVerify={(token) => {
+                          setTurnstileToken(token);
+                          form.setValue('cf_turnstile_token', token);
+                          setTurnstileError(false);
+                        }}
+                        onError={() => {
+                          setTurnstileToken('');
+                          form.setValue('cf_turnstile_token', '');
+                          setTurnstileError(true);
+                        }}
+                        onExpire={() => {
+                          setTurnstileToken('');
+                          form.setValue('cf_turnstile_token', '');
+                          showError('Verifikasi keamanan expired. Silakan verifikasi ulang.');
+                        }}
+                        theme="auto"
+                      />
+                    </div>
+                  )}
                 </FormControl>
                 <FormMessage />
               </FormItem>
