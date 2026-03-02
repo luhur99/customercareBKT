@@ -128,23 +128,40 @@ async function verifyTurnstileToken(token: string): Promise<boolean> {
     return true;
   }
 
+  const secretKey = Deno.env.get('TURNSTILE_SECRET_KEY');
+  
+  // Check if secret key is configured
+  if (!secretKey) {
+    console.error('[public-submit-ticket] TURNSTILE_SECRET_KEY is not set in environment variables');
+    console.error('[public-submit-ticket] Please set it via: supabase secrets set TURNSTILE_SECRET_KEY=your-secret-key');
+    return false;
+  }
+
   try {
+    console.log('[public-submit-ticket] Verifying Turnstile token with Cloudflare...');
+    
     const response = await fetch(TURNSTILE_VERIFY_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        secret: Deno.env.get('TURNSTILE_SECRET_KEY'),
+        secret: secretKey,
         response: token,
       }),
     });
 
     if (!response.ok) {
-      console.error('[public-submit-ticket] Turnstile verification failed:', response.status);
+      console.error('[public-submit-ticket] Turnstile API returned error:', response.status);
       return false;
     }
 
     const data = await response.json();
-    return data.success === true && data.error_codes?.length === 0;
+    console.log('[public-submit-ticket] Turnstile response:', JSON.stringify(data));
+    
+    if (!data.success) {
+      console.error('[public-submit-ticket] Turnstile validation failed. Error codes:', data['error-codes']);
+    }
+    
+    return data.success === true;
   } catch (error) {
     console.error('[public-submit-ticket] Turnstile verification error:', error);
     return false;
