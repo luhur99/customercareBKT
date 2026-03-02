@@ -28,6 +28,7 @@ interface LatestTicket {
   priority: string;
   no_plat_kendaraan?: string | null;
   no_simcard_gps?: string | null;
+  customer_name?: string | null;
   customer_whatsapp: string | null;
   created_by: string | null;
   assigned_to: string | null;
@@ -404,7 +405,7 @@ const Dashboard = () => {
                       const createdByProfile = ticket.created_by ? userProfiles[ticket.created_by] : null;
                       const createdByName = createdByProfile 
                         ? [createdByProfile.first_name, createdByProfile.last_name].filter(Boolean).join(' ') || createdByProfile.email 
-                        : 'Tidak Diketahui';
+                        : ticket.customer_name || 'Tidak Diketahui';
 
                       const assignedToProfile = ticket.assigned_to ? userProfiles[ticket.assigned_to] : null;
                       const assignedAgentName = assignedToProfile 
