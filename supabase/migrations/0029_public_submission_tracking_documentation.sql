@@ -1,0 +1,30 @@
+-- Track public submissions by adding comment constraint
+-- This migration is informational - no actual schema change needed
+-- Public submissions already supported via created_by = NULL in public-submit-ticket Edge Function
+
+-- For optional future enhancement: track public submissions in audit log
+-- CREATE TABLE IF NOT EXISTS public.ticket_submission_logs (
+--   id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+--   ticket_id BIGINT REFERENCES public.tickets(id) ON DELETE CASCADE,
+--   submission_type TEXT CHECK (submission_type IN ('internal', 'public')), -- 'public' for public-submit-ticket function
+--   ip_address INET,
+--   turnstile_verified BOOLEAN DEFAULT false,
+--   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()),
+--   CONSTRAINT unique_ticket_log UNIQUE (ticket_id)
+-- );
+-- ALTER TABLE public.ticket_submission_logs ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "Admins can view all submission logs" ON public.ticket_submission_logs
+--   FOR SELECT USING (
+--     EXISTS (
+--       SELECT 1 FROM public.profiles
+--       WHERE id = auth.uid()
+--       AND role IN ('admin', 'customer_service')
+--     )
+--   );
+
+-- For now, we rely on created_by = NULL as indicator of public submission
+-- Edge Function supabase/functions/public-submit-ticket/index.ts handles:
+-- 1. Turnstile CAPTCHA verification
+-- 2. Rate limiting per IP (5 requests per 10 minutes)
+-- 3. Server-side payload validation
+-- 4. Ticket insert with created_by = NULL for public submissions

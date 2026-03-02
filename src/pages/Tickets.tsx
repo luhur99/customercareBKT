@@ -22,7 +22,7 @@ import {
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getSlaStatus } from '@/utils/sla';
-import { formatWhatsappNumber } from '@/utils/whatsapp';
+import { buildTicketWhatsappLink, formatWhatsappNumber } from '@/utils/whatsapp';
 
 // Define ticket status and priority enums
 const TICKET_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
@@ -32,6 +32,8 @@ interface Ticket {
   ticket_number: string;
   created_at: string;
   title: string;
+  no_plat_kendaraan: string | null;
+  no_simcard_gps: string | null;
   description: string | null;
   status: 'open' | 'in_progress' | 'resolved' | 'closed';
   priority: typeof TICKET_PRIORITIES[number];
@@ -192,8 +194,11 @@ const Tickets = () => {
                   ? [ticket.assigned_to_profile.first_name, ticket.assigned_to_profile.last_name].filter(Boolean).join(' ') || ticket.assigned_to_profile.email 
                   : 'Belum Ditugaskan';
 
-                // Use shared WhatsApp formatting utility
                 const formattedWhatsapp = formatWhatsappNumber(ticket.customer_whatsapp);
+                const whatsappLink = buildTicketWhatsappLink({
+                  phoneNumber: ticket.customer_whatsapp,
+                  ticket,
+                });
 
                 return (
                   <TableRow key={ticket.id}>
@@ -207,10 +212,11 @@ const Tickets = () => {
                     <TableCell>
                       {formattedWhatsapp ? (
                         <a
-                          href={`https://wa.me/${formattedWhatsapp}`}
+                          href={whatsappLink}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-blue-600 hover:underline dark:text-blue-400"
+                          title="Share ke Tim CS"
                         >
                           {ticket.customer_name || ticket.customer_whatsapp}
                         </a>

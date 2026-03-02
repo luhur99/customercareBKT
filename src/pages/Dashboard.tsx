@@ -1,7 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { Loader2, Ticket as TicketIcon, CheckCircle, UserCheck, TrendingUp, Eye, PieChart, Share2 } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Loader2, Ticket as TicketIcon, CheckCircle, UserCheck, TrendingUp, Eye, PieChart, Share2, Hand } from 'lucide-react';
 
 import { useSession } from '@/components/SessionContextProvider';
 import { Button } from '@/components/ui/button';
@@ -14,9 +14,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { showError } from '@/utils/toast';
+import { showError, showSuccess } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getSlaStatus } from '@/utils/sla';
+import { buildTicketWhatsappLink } from '@/utils/whatsapp';
 
 interface LatestTicket {
   id: string;
@@ -25,14 +26,19 @@ interface LatestTicket {
   title: string;
   status: string;
   priority: string;
+  no_plat_kendaraan?: string | null;
+  no_simcard_gps?: string | null;
+  customer_whatsapp: string | null;
+  created_by: string | null;
   assigned_to: string | null;
   resolved_at: string | null;
-  assigned_to_profile: { first_name: string | null; last_name: string | null; email: string | null; }[] | null;
 }
 
 const Dashboard = () => {
   const { session, loading, role, user } = useSession();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [pendingTicketId, setPendingTicketId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !session) {
@@ -102,23 +108,16 @@ const Dashboard = () => {
     enabled: !!session && (role === 'admin' || role === 'customer_service') && !!user?.id,
   });
 
-  // Query for the 15 latest tickets (still needs full data for display)
+  // Store for cached user profiles
+  const [userProfiles, setUserProfiles] = useState<Record<string, any>>({});
+
+  // Query for the 15 latest tickets
   const { data: latestTickets, isLoading: isLoadingLatestTickets } = useQuery<LatestTicket[], Error>({
     queryKey: ['latestTickets'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('tickets')
-        .select(`
-          id,
-          ticket_number,
-          created_at,
-          title,
-          status,
-          priority,
-          assigned_to,
-          resolved_at,
-          assigned_to_profile:profiles!tickets_assigned_to_fkey(first_name, last_name, email)
-        `)
+        .select('*')
         .order('created_at', { ascending: false })
         .limit(15);
 
@@ -126,6 +125,76 @@ const Dashboard = () => {
       return data;
     },
     enabled: !!session && (role === 'admin' || role === 'customer_service'),
+  });
+
+  // Fetch profiles for the user IDs in tickets
+  useEffect(() => {
+    const fetchProfiles = async () => {
+      if (!latestTickets || latestTickets.length === 0) {
+        setUserProfiles({});
+        return;
+      }
+
+      // Collect unique user IDs
+      const userIds = new Set<string>();
+      latestTickets.forEach((ticket) => {
+        if (ticket.created_by) userIds.add(ticket.created_by);
+        if (ticket.assigned_to) userIds.add(ticket.assigned_to);
+      });
+
+      // Fetch profiles for all users at once
+      if (userIds.size > 0) {
+        const { data: profiles, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, first_name, last_name, email')
+          .in('id', Array.from(userIds));
+
+        if (!profileError && profiles) {
+          const profileMap: Record<string, any> = {};
+          profiles.forEach(profile => {
+            profileMap[profile.id] = profile;
+          });
+          setUserProfiles(profileMap);
+        }
+      }
+    };
+
+    fetchProfiles();
+  }, [latestTickets]);
+
+  // Mutation for taking a ticket as PIC from Dashboard
+  const takeTicketMutation = useMutation({
+    mutationFn: async (ticketId: string) => {
+      if (!user?.id) throw new Error('Pengguna tidak terautentikasi.');
+
+      const { data, error } = await supabase
+        .from('tickets')
+        .update({
+          status: 'in_progress',
+          assigned_to: user.id,
+        })
+        .eq('id', ticketId)
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    onMutate: (ticketId) => {
+      setPendingTicketId(ticketId);
+    },
+    onSuccess: () => {
+      showSuccess('Tiket berhasil diambil dan status diperbarui menjadi In Progress!');
+      queryClient.invalidateQueries({ queryKey: ['latestTickets'] });
+      queryClient.invalidateQueries({ queryKey: ['assignedActiveTicketsCount'] });
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+    },
+    onError: (err: Error) => {
+      showError(`Gagal mengambil tiket: ${err.message}`);
+    },
+    onSettled: () => {
+      setPendingTicketId(null);
+    },
   });
 
   // Query: Calculate SLA Performance Percentage - only select needed columns
@@ -307,8 +376,9 @@ const Dashboard = () => {
                     <TableHead>No Tiket</TableHead>
                     <TableHead>Judul</TableHead>
                     <TableHead>Dibuat Pada</TableHead>
+                    <TableHead>Dibuat Oleh</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Ditugaskan Kepada</TableHead>
+                    <TableHead>PIC (Person In Charge)</TableHead>
                     <TableHead>SLA</TableHead>
                     <TableHead className="text-right">Aksi</TableHead>
                   </TableRow>
@@ -316,7 +386,7 @@ const Dashboard = () => {
                 <TableBody>
                   {latestTickets?.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={8} className="text-center py-8 text-gray-500">
                         Tidak ada tiket terbaru yang ditemukan.
                       </TableCell>
                     </TableRow>
@@ -330,36 +400,39 @@ const Dashboard = () => {
                           ? 'bg-yellow-100 text-yellow-800'
                           : 'bg-red-100 text-red-800';
                       
-                      const profile = ticket.assigned_to_profile?.[0];
-                      const assignedAgentName = profile 
-                        ? [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.email 
+                      // Get name from userProfiles map
+                      const createdByProfile = ticket.created_by ? userProfiles[ticket.created_by] : null;
+                      const createdByName = createdByProfile 
+                        ? [createdByProfile.first_name, createdByProfile.last_name].filter(Boolean).join(' ') || createdByProfile.email 
+                        : 'Tidak Diketahui';
+
+                      const assignedToProfile = ticket.assigned_to ? userProfiles[ticket.assigned_to] : null;
+                      const assignedAgentName = assignedToProfile 
+                        ? [assignedToProfile.first_name, assignedToProfile.last_name].filter(Boolean).join(' ') || assignedToProfile.email 
                         : 'Belum Ditugaskan';
 
-                      // WhatsApp share link
-                      const ticketDetailUrl = `${window.location.origin}/tickets/${ticket.id}`;
-                      const whatsappMessage = encodeURIComponent(
-                        `Halo, saya ingin berbagi detail tiket ini dengan Anda:\n\n` +
-                        `No. Tiket: ${ticket.ticket_number}\n` +
-                        `Judul: ${ticket.title}\n` +
-                        `Status: ${ticket.status.replaceAll('_', ' ')}\n` +
-                        `Prioritas: ${ticket.priority}\n` +
-                        `Lihat detail lengkap di: ${ticketDetailUrl}`
-                      );
-                      const whatsappShareLink = `https://wa.me/?text=${whatsappMessage}`;
+                      const whatsappShareLink = buildTicketWhatsappLink({
+                        phoneNumber: ticket.customer_whatsapp,
+                        ticket,
+                      });
 
                       return (
                         <TableRow key={ticket.id}>
-                          {/* MED-02: Ticket number now links to detail page */}
+                          {/* Ticket number links to WhatsApp share */}
                           <TableCell className="font-medium">
-                            <Link 
-                              to={`/tickets/${ticket.id}`}
+                            <a
+                              href={whatsappShareLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
                               className="text-blue-600 hover:underline dark:text-blue-400"
+                              title="Share ke Tim CS"
                             >
                               {ticket.ticket_number}
-                            </Link>
+                            </a>
                           </TableCell>
                           <TableCell>{ticket.title}</TableCell>
                           <TableCell>{new Date(ticket.created_at).toLocaleDateString()}</TableCell>
+                          <TableCell>{createdByName}</TableCell>
                           <TableCell>
                             <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
                               ticket.status === 'open' ? 'bg-yellow-100 text-yellow-800' :
@@ -378,19 +451,36 @@ const Dashboard = () => {
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
+                              {/* Take Ticket button - only for open tickets */}
+                              {ticket.status === 'open' && !ticket.assigned_to && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 px-2"
+                                  onClick={() => takeTicketMutation.mutate(ticket.id)}
+                                  disabled={pendingTicketId === ticket.id}
+                                  title="Ambil tiket sebagai PIC"
+                                >
+                                  {pendingTicketId === ticket.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Hand className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              )}
                               {/* WhatsApp share button */}
                               <a
                                 href={whatsappShareLink}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center justify-center h-8 w-8 p-0 hover:bg-gray-100 rounded-md"
-                                title="Bagikan via WhatsApp"
+                                title="Share ke Tim CS"
                               >
                                 <Share2 className="h-4 w-4 text-green-600" />
                               </a>
                               {/* View detail button */}
                               <Link to={`/tickets/${ticket.id}`}>
-                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Lihat detail">
                                   <Eye className="h-4 w-4" />
                                   <span className="sr-only">Lihat Detail</span>
                                 </Button>

@@ -29,7 +29,7 @@ import {
 import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getSlaStatus } from '@/utils/sla';
-import { formatWhatsappNumber } from '@/utils/whatsapp';
+import { buildTicketWhatsappLink } from '@/utils/whatsapp';
 import { ALLOWED_FILE_TYPES, MAX_FILE_SIZE_MB, uploadFilesToStorage } from '@/utils/fileUpload';
 import {
   AlertDialog,
@@ -51,6 +51,8 @@ interface Ticket {
   ticket_number: string;
   created_at: string;
   title: string;
+  no_plat_kendaraan: string | null;
+  no_simcard_gps: string | null;
   description: string | null;
   status: 'open' | 'in_progress' | 'resolved' | 'closed';
   priority: 'low' | 'medium' | 'high' | 'urgent';
@@ -473,9 +475,11 @@ const TicketDetail = () => {
   const canEdit = role === 'admin' || role === 'customer_service';
   const canDelete = role === 'admin';
 
-  // Use unified WhatsApp formatting
-  const formattedWhatsapp = formatWhatsappNumber(ticket.customer_whatsapp);
-  const whatsappLink = formattedWhatsapp ? `https://wa.me/${formattedWhatsapp}` : '#';
+  const whatsappLink = buildTicketWhatsappLink({
+    phoneNumber: ticket.customer_whatsapp,
+    audience: 'customer',
+    ticket,
+  });
 
   const dateTimeFormatOptions: Intl.DateTimeFormatOptions = {
     year: 'numeric',
@@ -611,6 +615,8 @@ const TicketDetail = () => {
               <div className="space-y-2">
                 <p><strong>No Tiket:</strong> {ticket.ticket_number}</p>
                 <p><strong>Dibuat Pada:</strong> {new Date(ticket.created_at).toLocaleString('id-ID', dateTimeFormatOptions)}</p>
+                <p><strong>NO Plat Kendaraan:</strong> {ticket.no_plat_kendaraan || '-'}</p>
+                <p><strong>No Simcard GPS:</strong> {ticket.no_simcard_gps || '-'}</p>
                 <p><strong>Status:</strong>
                   <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
                     ticket.status === 'open' ? 'bg-yellow-100 text-yellow-800' :
@@ -655,6 +661,7 @@ const TicketDetail = () => {
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-blue-600 hover:underline dark:text-blue-400"
+                      title="WA Konsumen"
                     >
                       {ticket.customer_whatsapp}
                     </a>

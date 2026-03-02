@@ -16,6 +16,7 @@ const Dashboard = lazy(() => import("./pages/Dashboard"));
 const ManageRoles = lazy(() => import("./pages/ManageRoles"));
 const Tickets = lazy(() => import("./pages/Tickets"));
 const SubmitComplaint = lazy(() => import("./pages/SubmitComplaint"));
+const PublicSubmitComplaint = lazy(() => import("./pages/PublicSubmitComplaint"));
 const TicketDetail = lazy(() => import("./pages/TicketDetail"));
 
 const queryClient = new QueryClient();
@@ -32,6 +33,7 @@ const App = () => (
               <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
                 <Routes>
                   <Route path="/login" element={<Login />} />
+                  <Route path="/public-submit" element={<PublicSubmitComplaint />} />
                   <Route path="/welcome" element={<Index />} />
                   <Route path="/manage-roles" element={<ManageRoles />} />
                   <Route path="/tickets" element={<Tickets />} />

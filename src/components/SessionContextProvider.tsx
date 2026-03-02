@@ -126,8 +126,10 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   }, []); // Empty deps — auth listener is set up once only
 
   // Redirect logic — separate effect that reacts to session/loading/pathname changes
+  // Whitelist public routes that don't need authentication
+  const publicRoutes = ['/login', '/public-submit'];
   useEffect(() => {
-    if (!loading && !session && location.pathname !== '/login') {
+    if (!loading && !session && !publicRoutes.includes(location.pathname)) {
       navigate('/login');
     }
   }, [loading, session, location.pathname, navigate]);

@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2, Send, UploadCloud, XCircle } from 'lucide-react';
+import { Loader2, Send } from 'lucide-react';
+import Turnstile from 'react-turnstile';
 
-import { useSession } from '@/components/SessionContextProvider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -26,13 +26,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { showSuccess, showError, showWarning } from '@/utils/toast';
+import { showSuccess, showError } from '@/utils/toast';
 import { supabase } from '@/integrations/supabase/client';
-import { ALLOWED_FILE_TYPES, MAX_FILE_SIZE_MB, uploadFilesToStorage } from '@/utils/fileUpload';
 
-const MAX_FILES = 5;
-
-// Define available complaint categories
 const COMPLAINT_CATEGORIES = [
   'Technical Issue',
   'Billing Inquiry',
@@ -42,9 +38,12 @@ const COMPLAINT_CATEGORIES = [
   'Other',
 ] as const;
 
-// Define form schema for submitting a new complaint
-const submitComplaintFormSchema = z.object({
+const publicSubmitComplaintSchema = z.object({
   title: z.string().min(1, { message: 'Judul keluhan diperlukan.' }),
+  description: z.string().optional(),
+  customer_name: z.string().min(1, { message: 'Nama pelanggan diperlukan.' }),
+  customer_whatsapp: z.string().optional(),
+  category: z.enum(COMPLAINT_CATEGORIES, { message: 'Kategori keluhan diperlukan.' }),
   no_plat_kendaraan: z
     .string()
     .min(1, { message: 'No plat kendaraan diperlukan.' })
@@ -59,157 +58,91 @@ const submitComplaintFormSchema = z.object({
     .regex(/^0812\d{0,8}$/, {
       message: 'No simcard harus angka, diawali 0812, dan tanpa tanda baca.',
     }),
-  description: z.string().optional(),
-  customer_name: z.string().min(1, { message: 'Nama pelanggan diperlukan.' }),
-  customer_whatsapp: z.string().optional(),
-  category: z.enum(COMPLAINT_CATEGORIES, { message: 'Kategori keluhan diperlukan.' }),
+  cf_turnstile_token: z.string().min(1, { message: 'Verifikasi Turnstile diperlukan.' }),
 });
 
-const SubmitComplaint = () => {
-  const { session, loading, user, role } = useSession();
+const PublicSubmitComplaint = () => {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [turnstileToken, setTurnstileToken] = useState<string>('');
+  const [successTicketNumber, setSuccessTicketNumber] = useState<string>('');
 
-  // Redirect if not logged in or unauthorized role
-  useEffect(() => {
-    if (!loading && !session) {
-      showError('Anda perlu masuk untuk mengajukan keluhan.');
-      navigate('/login');
-    }
-    if (!loading && session && !['admin', 'customer_service'].includes(role || '')) {
-      showError('Anda tidak memiliki izin untuk mengakses halaman ini.');
-      navigate('/');
-    }
-  }, [session, loading, navigate, role]);
-
-  const form = useForm<z.infer<typeof submitComplaintFormSchema>>({
-    resolver: zodResolver(submitComplaintFormSchema),
+  const form = useForm<z.infer<typeof publicSubmitComplaintSchema>>({
+    resolver: zodResolver(publicSubmitComplaintSchema),
     defaultValues: {
       title: '',
-      no_plat_kendaraan: '',
-      no_simcard_gps: '',
       description: '',
       customer_name: '',
       customer_whatsapp: '',
       category: 'General Inquiry',
+      no_plat_kendaraan: '',
+      no_simcard_gps: '',
+      cf_turnstile_token: '',
     },
   });
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!event.target.files) return;
-
-    const newFiles = Array.from(event.target.files);
-    const validFiles: File[] = [];
-    const errors: string[] = [];
-
-    // Check total file limit
-    if (selectedFiles.length + newFiles.length > MAX_FILES) {
-      showError(`Maksimal ${MAX_FILES} file diperbolehkan.`);
-      return;
-    }
-
-    for (const file of newFiles) {
-      // Validate file type
-      if (!ALLOWED_FILE_TYPES.includes(file.type)) {
-        errors.push(`${file.name}: tipe file tidak didukung`);
-        continue;
-      }
-      // Validate file size
-      if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-        errors.push(`${file.name}: ukuran melebihi ${MAX_FILE_SIZE_MB}MB`);
-        continue;
-      }
-      validFiles.push(file);
-    }
-
-    if (errors.length > 0) {
-      showError(`File tidak valid: ${errors.join(', ')}`);
-    }
-
-    if (validFiles.length > 0) {
-      setSelectedFiles((prevFiles) => [...prevFiles, ...validFiles]);
-    }
-  };
-
-  const handleRemoveFile = (indexToRemove: number) => {
-    setSelectedFiles((prevFiles) => prevFiles.filter((_, index) => index !== indexToRemove));
-  };
-
-  // Mutation for submitting a new complaint (two-step: create ticket, then upload files)
   const submitComplaintMutation = useMutation({
-    mutationFn: async (formData: z.infer<typeof submitComplaintFormSchema>) => {
-      if (!user) throw new Error('Pengguna tidak terautentikasi.');
+    mutationFn: async (formData: z.infer<typeof publicSubmitComplaintSchema>) => {
+      if (!turnstileToken) {
+        throw new Error('Silakan selesaikan verifikasi Turnstile.');
+      }
 
-      // Step 1: Create ticket without attachments
-      const { data: newTicket, error: insertError } = await supabase
-        .from('tickets')
-        .insert({
+      const response = await supabase.functions.invoke('quick-responder', {
+        body: {
           title: formData.title,
-          no_plat_kendaraan: formData.no_plat_kendaraan,
-          no_simcard_gps: formData.no_simcard_gps,
           description: formData.description,
           customer_name: formData.customer_name,
           customer_whatsapp: formData.customer_whatsapp,
           category: formData.category,
-          status: 'open',
-          priority: 'medium',
-          created_by: user.id,
-          attachments: [],
-        })
-        .select()
-        .single();
+          no_plat_kendaraan: formData.no_plat_kendaraan,
+          no_simcard_gps: formData.no_simcard_gps,
+          cf_turnstile_token: turnstileToken,
+        },
+      });
 
-      if (insertError) throw new Error(insertError.message);
-      if (!newTicket) throw new Error('Gagal membuat tiket.');
-
-      // Step 2: Upload files and attach to ticket
-      if (selectedFiles.length > 0) {
-        let filePaths: string[];
-        try {
-          filePaths = await uploadFilesToStorage(selectedFiles, user.id, newTicket.id);
-        } catch (uploadError) {
-          showWarning('Tiket dibuat, tetapi lampiran gagal diunggah. Silakan edit tiket untuk menambahkan lampiran.');
-          return newTicket;
-        }
-
-        const { error: updateError } = await supabase
-          .from('tickets')
-          .update({ attachments: filePaths })
-          .eq('id', newTicket.id);
-
-        if (updateError) {
-          showWarning('Tiket dibuat, tetapi gagal menyimpan referensi lampiran.');
-        }
+      if (response.error) {
+        throw new Error(response.error.message || 'Gagal mengajukan keluhan.');
       }
 
-      return newTicket;
+      return response.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      setSuccessTicketNumber(data.ticket_number);
       showSuccess('Keluhan Anda berhasil diajukan!');
-      queryClient.invalidateQueries({ queryKey: ['tickets'] });
-      queryClient.invalidateQueries({ queryKey: ['latestTickets'] });
-      queryClient.invalidateQueries({ queryKey: ['activeTickets'] });
       form.reset();
-      setSelectedFiles([]);
-      navigate('/');
+      setTurnstileToken('');
     },
     onError: (error: Error) => {
       showError(`Gagal mengajukan keluhan: ${error.message}`);
     },
   });
 
-  const onSubmit = async (values: z.infer<typeof submitComplaintFormSchema>) => {
+  const onSubmit = async (values: z.infer<typeof publicSubmitComplaintSchema>) => {
     submitComplaintMutation.mutate(values);
   };
 
-  if (loading || !session || !['admin', 'customer_service'].includes(role || '')) {
+  if (successTicketNumber) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
-        <p className="text-gray-700 dark:text-gray-300">
-          {loading ? 'Memuat...' : 'Mengalihkan...'}
-        </p>
+      <div className="container mx-auto p-4 flex justify-center">
+        <Card className="w-full max-w-lg">
+          <CardHeader>
+            <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white text-center">Berhasil!</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6 text-center">
+            <p className="text-lg text-gray-700 dark:text-gray-300">
+              Terima kasih telah mengajukan keluhan. Tim kami akan segera menangani masalah Anda.
+            </p>
+            <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Nomor Tiket Anda:</p>
+              <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{successTicketNumber}</p>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Silakan simpan nomor tiket ini untuk referensi Anda.
+            </p>
+            <Button onClick={() => window.location.href = '/'} className="w-full">
+              Kembali ke Beranda
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -218,9 +151,9 @@ const SubmitComplaint = () => {
     <div className="container mx-auto p-4 flex justify-center">
       <Card className="w-full max-w-lg">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">Ajukan Keluhan Baru</CardTitle>
+          <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">Ajukan Keluhan</CardTitle>
           <CardDescription className="text-gray-600 dark:text-gray-400">
-            Silakan isi detail keluhan atau masalah Anda di bawah ini.
+            Silakan isi detail keluhan Anda di bawah ini. Tim kami akan segera menangani.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -250,6 +183,7 @@ const SubmitComplaint = () => {
                   </FormItem>
                 )}
               />
+
               <FormField
                 control={form.control}
                 name="title"
@@ -263,9 +197,11 @@ const SubmitComplaint = () => {
                   </FormItem>
                 )}
               />
+
               <p className="text-sm text-muted-foreground">
                 Jika lebih dari 1 kendaraan, cukup 1 unit saja yang ditulis, sisanya di deskripsi.
               </p>
+
               <FormField
                 control={form.control}
                 name="no_plat_kendaraan"
@@ -287,6 +223,7 @@ const SubmitComplaint = () => {
                   </FormItem>
                 )}
               />
+
               <FormField
                 control={form.control}
                 name="no_simcard_gps"
@@ -310,6 +247,7 @@ const SubmitComplaint = () => {
                   </FormItem>
                 )}
               />
+
               <FormField
                 control={form.control}
                 name="description"
@@ -323,19 +261,21 @@ const SubmitComplaint = () => {
                   </FormItem>
                 )}
               />
+
               <FormField
                 control={form.control}
                 name="customer_name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Nama Pelanggan</FormLabel>
+                    <FormLabel>Nama Lengkap</FormLabel>
                     <FormControl>
-                      <Input placeholder="Nama lengkap Anda" {...field} />
+                      <Input placeholder="Nama Anda" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+
               <FormField
                 control={form.control}
                 name="customer_whatsapp"
@@ -350,57 +290,18 @@ const SubmitComplaint = () => {
                 )}
               />
 
-              {/* File Upload Section */}
               <FormItem>
-                <FormLabel>Lampiran (Opsional)</FormLabel>
+                <FormLabel>Verifikasi Keamanan</FormLabel>
                 <FormControl>
-                  <>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      multiple
-                      onChange={handleFileChange}
-                      className="hidden"
-                      accept=".jpg,.jpeg,.png,.gif,.pdf,.txt"
-                      aria-label="Upload files"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full"
-                    >
-                      <UploadCloud className="mr-2 h-4 w-4" /> Pilih File
-                    </Button>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Maksimal {MAX_FILES} file, masing-masing maks {MAX_FILE_SIZE_MB}MB. 
-                      Format: JPG, PNG, GIF, PDF, TXT.
-                    </p>
-                  </>
+                  <Turnstile
+                    sitekey={import.meta.env.VITE_TURNSTILE_SITE_KEY || ''}
+                    onToken={setTurnstileToken}
+                  />
                 </FormControl>
                 <FormMessage />
-                {selectedFiles.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    <p className="text-sm font-medium">File Terpilih:</p>
-                    {selectedFiles.map((file, index) => (
-                      <div key={index} className="flex items-center justify-between p-2 border rounded-md text-sm">
-                        <span>{file.name}</span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleRemoveFile(index)}
-                          className="h-auto p-1"
-                        >
-                          <XCircle className="h-4 w-4 text-red-500" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </FormItem>
 
-              <Button type="submit" className="w-full" disabled={submitComplaintMutation.isPending}>
+              <Button type="submit" className="w-full" disabled={submitComplaintMutation.isPending || !turnstileToken}>
                 {submitComplaintMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 <Send className="mr-2 h-4 w-4" /> Ajukan Keluhan
               </Button>
@@ -412,4 +313,4 @@ const SubmitComplaint = () => {
   );
 };
 
-export default SubmitComplaint;
+export default PublicSubmitComplaint;
