@@ -274,11 +274,11 @@ const SubmitComplaint = () => {
                     <FormLabel>NO Plat Kendaraan</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="Contoh: B1234CD"
-                        maxLength={10}
+                        placeholder="Contoh: B 1234 CD"
+                        maxLength={15}
                         {...field}
                         onChange={(event) => {
-                          const sanitized = event.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+                          const sanitized = event.target.value.replace(/[^A-Za-z0-9 ]/g, '').toUpperCase();
                           field.onChange(sanitized);
                         }}
                       />
@@ -297,8 +297,8 @@ const SubmitComplaint = () => {
                       <Input
                         type="text"
                         inputMode="numeric"
-                        placeholder="Contoh: 0812..."
-                        maxLength={12}
+                        placeholder="Contoh: 081234567890"
+                        maxLength={15}
                         {...field}
                         onChange={(event) => {
                           const sanitized = event.target.value.replace(/\D/g, '');
