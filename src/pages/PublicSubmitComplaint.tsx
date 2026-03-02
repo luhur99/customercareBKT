@@ -302,7 +302,7 @@ const PublicSubmitComplaint = () => {
                 <FormMessage />
               </FormItem>
 
-              <Button type="submit" className="w-full" disabled={submitComplaintMutation.isPending || !turnstileToken}>
+              <Button type="submit" className="w-full" disabled={submitComplaintMutation.isPending}>
                 {submitComplaintMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 <Send className="mr-2 h-4 w-4" /> Ajukan Keluhan
               </Button>
