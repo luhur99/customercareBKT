@@ -116,6 +116,7 @@ const PublicSubmitComplaint = () => {
 
       if (response.error) {
         let errorMessage = response.error.message || 'Gagal mengajukan keluhan.';
+        let debugInfo = null;
         const context = (response.error as { context?: Response }).context;
 
         if (context) {
@@ -123,12 +124,23 @@ const PublicSubmitComplaint = () => {
             const contentType = context.headers.get('content-type') || '';
             if (contentType.includes('application/json')) {
               const errorBody = await context.json();
+              
+              // Extract error message
               if (typeof errorBody?.error === 'string') {
                 errorMessage = errorBody.error;
               } else if (typeof errorBody?.message === 'string') {
                 errorMessage = errorBody.message;
-              } else {
-                errorMessage = JSON.stringify(errorBody);
+              }
+              
+              // Extract debug info for logging
+              if (errorBody?.debug) {
+                debugInfo = errorBody.debug;
+                console.error('[PublicSubmit] Backend debug info:', debugInfo);
+                
+                // Append hint to error message for better UX
+                if (debugInfo.hint) {
+                  errorMessage += `\n\n💡 ${debugInfo.hint}`;
+                }
               }
             } else {
               const textBody = await context.text();
@@ -136,7 +148,8 @@ const PublicSubmitComplaint = () => {
                 errorMessage = textBody;
               }
             }
-          } catch {
+          } catch (parseError) {
+            console.error('[PublicSubmit] Failed to parse error response:', parseError);
             // keep default error message
           }
         }

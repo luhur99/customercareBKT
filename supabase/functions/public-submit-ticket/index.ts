@@ -221,14 +221,32 @@ Deno.serve(async (req: Request) => {
     const data = payload as PublicSubmitPayload;
 
     // Verify Turnstile token
+    console.log('[public-submit-ticket] Starting Turnstile verification...');
     const turnstileValid = await verifyTurnstileToken(data.cf_turnstile_token);
+    
     if (!turnstileValid) {
-      console.warn('[public-submit-ticket] Invalid Turnstile token');
-      return new Response(JSON.stringify({ error: 'Verifikasi keamanan gagal. Coba lagi.' }), {
+      console.error('[public-submit-ticket] Turnstile validation FAILED');
+      console.error('[public-submit-ticket] Check: 1) TURNSTILE_SECRET_KEY is set, 2) Secret key matches site key from Cloudflare');
+      
+      // Return more informative error for debugging
+      const secretKeyExists = !!Deno.env.get('TURNSTILE_SECRET_KEY');
+      return new Response(JSON.stringify({ 
+        error: 'Verifikasi keamanan gagal. Coba lagi.',
+        debug: {
+          message: secretKeyExists 
+            ? 'Secret key configured but validation failed. Check if secret key matches site key in Cloudflare.'
+            : 'TURNSTILE_SECRET_KEY not configured in Supabase Edge Function secrets.',
+          hint: secretKeyExists 
+            ? 'Verify your Cloudflare Turnstile Secret Key in Supabase Dashboard' 
+            : 'Set TURNSTILE_SECRET_KEY in Supabase Edge Functions → Manage Secrets'
+        }
+      }), {
         status: 403,
         headers: corsHeaders,
       });
     }
+    
+    console.log('[public-submit-ticket] Turnstile verification PASSED ✓');
 
     // Create Supabase client with service role
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
