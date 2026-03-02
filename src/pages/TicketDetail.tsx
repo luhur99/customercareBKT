@@ -460,7 +460,7 @@ const TicketDetail = () => {
     ? (ticket.creator_profile
         ? [ticket.creator_profile.first_name, ticket.creator_profile.last_name].filter(Boolean).join(' ') || ticket.creator_profile.email
         : 'N/A')
-    : 'Pengajuan Publik';
+    : ticket.customer_name || 'Pengajuan Publik';
 
   const assignedAgentName = ticket.assigned_to_profile
     ? [ticket.assigned_to_profile.first_name, ticket.assigned_to_profile.last_name].filter(Boolean).join(' ') || ticket.assigned_to_profile.email
