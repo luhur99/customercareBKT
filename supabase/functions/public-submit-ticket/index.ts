@@ -225,7 +225,7 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
-    // Insert ticket with created_by = null for public submissions
+    // Insert ticket without created_by for public submissions (bypassRLS with service role)
     const ticketData = {
       title: data.title.trim(),
       description: (data.description || '').trim(),
@@ -236,9 +236,10 @@ Deno.serve(async (req: Request) => {
       no_simcard_gps: data.no_simcard_gps.trim(),
       status: 'open',
       priority: 'medium',
-      created_by: null, // Public submission
       attachments: [],
     };
+
+    console.log('[public-submit-ticket] Attempting to insert ticket:', { title: ticketData.title, customer_name: ticketData.customer_name });
 
     const { data: newTicket, error: insertError } = await supabase
       .from('tickets')
@@ -247,8 +248,9 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (insertError) {
-      console.error('[public-submit-ticket] Insert error:', insertError);
-      return new Response(JSON.stringify({ error: 'Gagal membuat tiket. Coba lagi nanti.' }), {
+      console.error('[public-submit-ticket] Insert error:', JSON.stringify(insertError, null, 2));
+      const errorMessage = insertError.message || 'Gagal membuat tiket. Coba lagi nanti.';
+      return new Response(JSON.stringify({ error: errorMessage, details: insertError }), {
         status: 500,
         headers: corsHeaders,
       });
