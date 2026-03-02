@@ -22,19 +22,36 @@ TURNSTILE_SECRET_KEY=your-turnstile-secret-key-here
 1. Buka https://dash.cloudflare.com/
 2. Login dengan akun Cloudflare (atau signup gratis)
 3. Navigate ke **Turnstile** di left sidebar
-4. Klik **Create Site**
+4. Klik **Create Site** atau **Add Site**
 5. Isi form:
-   - **Domain**: customercarebkt.vercel.app (dan localhost untuk development)
+   - **Site Name**: CustomerCare BKT Production
+   - **Domain**: `customercarebkt.vercel.app` (domain spesifik tanpa https://)
    - **Mode**: Managed Challenge (recommended)
 6. Copy **Site Key** → `VITE_TURNSTILE_SITE_KEY`
 7. Copy **Secret Key** → `TURNSTILE_SECRET_KEY`
 
+### ⚠️ PENTING - Domain Configuration
+
+**✅ YANG BENAR:**
+- Tambahkan domain spesifik: `customercarebkt.vercel.app`
+- Format: tanpa protocol (tanpa `https://` atau `http://`)
+
+**❌ TIDAK DIDUKUNG:**
+- Wildcard domains seperti `*.vercel.app` ❌
+- Localhost dengan port seperti `localhost:5173` ❌
+- Multiple domains dengan wildcard ❌
+
 ### Development Testing
-Tambah domain ke Turnstile setting:
-- localhost
-- localhost:5173
-- localhost:8080
-- localhost:3000
+
+**Untuk localhost/development:**
+- Code sudah diatur untuk auto-bypass Turnstile di localhost
+- Tidak perlu tambahkan `localhost` ke Cloudflare
+- Widget akan otomatis menampilkan info "Mode Development"
+
+**Untuk Vercel Preview Deployments:**
+- Jika perlu test di preview URL (e.g., `customercarebkt-xyz123.vercel.app`)
+- Tambahkan URL preview spesifik ke Cloudflare Turnstile
+- Atau gunakan localhost untuk testing sebelum deploy
 
 ## 📁 File Structure
 ```
