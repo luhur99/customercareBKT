@@ -87,7 +87,7 @@ const PublicSubmitComplaint = () => {
       //   throw new Error('Silakan selesaikan verifikasi Turnstile.');
       // }
 
-      const response = await supabase.functions.invoke('quick-responder', {
+      const response = await supabase.functions.invoke('public-submit-ticket', {
         body: {
           title: formData.title,
           description: formData.description,
@@ -101,7 +101,33 @@ const PublicSubmitComplaint = () => {
       });
 
       if (response.error) {
-        throw new Error(response.error.message || 'Gagal mengajukan keluhan.');
+        let errorMessage = response.error.message || 'Gagal mengajukan keluhan.';
+        const context = (response.error as { context?: Response }).context;
+
+        if (context) {
+          try {
+            const contentType = context.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              const errorBody = await context.json();
+              if (typeof errorBody?.error === 'string') {
+                errorMessage = errorBody.error;
+              } else if (typeof errorBody?.message === 'string') {
+                errorMessage = errorBody.message;
+              } else {
+                errorMessage = JSON.stringify(errorBody);
+              }
+            } else {
+              const textBody = await context.text();
+              if (textBody) {
+                errorMessage = textBody;
+              }
+            }
+          } catch {
+            // keep default error message
+          }
+        }
+
+        throw new Error(errorMessage);
       }
 
       return response.data;
