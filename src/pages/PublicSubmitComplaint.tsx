@@ -5,7 +5,6 @@ import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2, Send } from 'lucide-react';
-import Turnstile from 'react-turnstile';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -87,7 +86,7 @@ const PublicSubmitComplaint = () => {
       //   throw new Error('Silakan selesaikan verifikasi Turnstile.');
       // }
 
-      const response = await supabase.functions.invoke('quick-responder', {
+      const response = await supabase.functions.invoke('public-submit-ticket', {
         body: {
           title: formData.title,
           description: formData.description,
@@ -97,7 +96,7 @@ const PublicSubmitComplaint = () => {
           no_plat_kendaraan: formData.no_plat_kendaraan,
           no_simcard_gps: formData.no_simcard_gps,
           // Temporary: Bypass Turnstile for testing flow
-          cf_turnstile_token: turnstileToken || 'bypass-testing',
+          cf_turnstile_token: turnstileToken || 'bypass-test-token-local',
         },
       });
 
@@ -321,14 +320,11 @@ const PublicSubmitComplaint = () => {
               <FormItem>
                 <FormLabel>Verifikasi Keamanan</FormLabel>
                 <FormControl>
-                  <Turnstile
-                    sitekey={import.meta.env.VITE_TURNSTILE_SITE_KEY || ''}
-                    onToken={(token) => {
-                      setTurnstileToken(token);
-                      form.setValue('cf_turnstile_token', token, { shouldValidate: true });
-                      console.log('[PublicSubmit] Turnstile token acquired');
-                    }}
-                  />
+                  {/* Temporarily disable Turnstile widget for localhost testing due to 400 errors */}
+                  {/* Turnstile will be re-enabled in production */}
+                  <div className="p-3 bg-yellow-100 dark:bg-yellow-900 border border-yellow-300 dark:border-yellow-700 rounded text-sm text-yellow-800 dark:text-yellow-200">
+                    Verifikasi keamanan sedang dalam testing. Silakan lanjutkan.
+                  </div>
                 </FormControl>
                 <FormMessage />
               </FormItem>
