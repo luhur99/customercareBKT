@@ -41,21 +41,21 @@ const publicSubmitComplaintSchema = z.object({
   title: z.string().min(1, { message: 'Judul keluhan diperlukan.' }),
   description: z.string().optional(),
   customer_name: z.string().min(1, { message: 'Nama pelanggan diperlukan.' }),
-  customer_whatsapp: z.string().optional(),
+  customer_whatsapp: z.string().min(1, { message: 'Nomor WhatsApp diperlukan.' }),
   category: z.enum(COMPLAINT_CATEGORIES, { message: 'Kategori keluhan diperlukan.' }),
   no_plat_kendaraan: z
     .string()
     .min(1, { message: 'No plat kendaraan diperlukan.' })
-    .max(10, { message: 'No plat kendaraan maksimal 10 karakter.' })
-    .regex(/^[A-Za-z0-9]+$/, {
-      message: 'No plat hanya boleh berisi huruf dan angka tanpa tanda baca.',
+    .max(15, { message: 'No plat kendaraan maksimal 15 karakter.' })
+    .regex(/^[A-Za-z0-9 ]+$/, {
+      message: 'No plat hanya boleh berisi huruf, angka, dan spasi.',
     }),
   no_simcard_gps: z
     .string()
     .min(1, { message: 'No simcard GPS diperlukan.' })
-    .max(12, { message: 'No simcard GPS maksimal 12 digit.' })
-    .regex(/^0812\d{0,8}$/, {
-      message: 'No simcard harus angka, diawali 0812, dan tanpa tanda baca.',
+    .max(15, { message: 'No simcard GPS maksimal 15 digit.' })
+    .regex(/^08\d{0,13}$/, {
+      message: 'No simcard harus angka, diawali 08, maksimal 15 digit.',
     }),
   cf_turnstile_token: z.string().optional(), // Temporary: Optional for testing
 });
@@ -308,7 +308,7 @@ const PublicSubmitComplaint = () => {
                 name="customer_whatsapp"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Nomor WhatsApp (Opsional)</FormLabel>
+                    <FormLabel>Nomor WhatsApp</FormLabel>
                     <FormControl>
                       <Input type="text" placeholder="Contoh: 081234567890" {...field} />
                     </FormControl>

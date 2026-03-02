@@ -83,9 +83,11 @@ function validatePayload(data: unknown): { valid: boolean; errors: string[] } {
     errors.push('Customer name maksimal 255 karakter');
   }
 
-  // Customer WhatsApp (optional)
-  if (payload.customer_whatsapp !== undefined && typeof payload.customer_whatsapp !== 'string') {
-    errors.push('Customer WhatsApp harus string jika ada');
+  // Customer WhatsApp (mandatory)
+  if (typeof payload.customer_whatsapp !== 'string' || payload.customer_whatsapp.trim().length === 0) {
+    errors.push('Customer WhatsApp diperlukan');
+  } else if (payload.customer_whatsapp.length > 20) {
+    errors.push('Customer WhatsApp maksimal 20 karakter');
   }
 
   // Category
@@ -97,15 +99,15 @@ function validatePayload(data: unknown): { valid: boolean; errors: string[] } {
   // No plat kendaraan
   if (typeof payload.no_plat_kendaraan !== 'string' || payload.no_plat_kendaraan.trim().length === 0) {
     errors.push('No plat kendaraan diperlukan');
-  } else if (!/^[A-Za-z0-9]{1,10}$/.test(payload.no_plat_kendaraan)) {
-    errors.push('No plat kendaraan hanya boleh berisi huruf/angka, max 10 karakter');
+  } else if (!/^[A-Za-z0-9 ]{1,15}$/.test(payload.no_plat_kendaraan)) {
+    errors.push('No plat kendaraan hanya boleh berisi huruf/angka/spasi, max 15 karakter');
   }
 
   // No simcard GPS
   if (typeof payload.no_simcard_gps !== 'string' || payload.no_simcard_gps.trim().length === 0) {
     errors.push('No simcard GPS diperlukan');
-  } else if (!/^0812\d{0,8}$/.test(payload.no_simcard_gps)) {
-    errors.push('No simcard GPS harus diawali 0812, max 12 digit');
+  } else if (!/^08\d{0,13}$/.test(payload.no_simcard_gps)) {
+    errors.push('No simcard GPS harus diawali 08, maksimal 15 digit');
   }
 
   // Turnstile token
