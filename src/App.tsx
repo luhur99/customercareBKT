@@ -17,6 +17,7 @@ const ManageRoles = lazy(() => import("./pages/ManageRoles"));
 const Tickets = lazy(() => import("./pages/Tickets"));
 const SubmitComplaint = lazy(() => import("./pages/SubmitComplaint"));
 const PublicSubmitComplaint = lazy(() => import("./pages/PublicSubmitComplaint"));
+const PublicTicketDetail = lazy(() => import("./pages/PublicTicketDetail"));
 const TicketDetail = lazy(() => import("./pages/TicketDetail"));
 
 const queryClient = new QueryClient();
@@ -34,6 +35,7 @@ const App = () => (
                 <Routes>
                   <Route path="/login" element={<Login />} />
                   <Route path="/public-submit" element={<PublicSubmitComplaint />} />
+                  <Route path="/public-ticket/:id" element={<PublicTicketDetail />} />
                   <Route path="/welcome" element={<Index />} />
                   <Route path="/manage-roles" element={<ManageRoles />} />
                   <Route path="/tickets" element={<Tickets />} />

@@ -122,24 +122,21 @@ function validatePayload(data: unknown): { valid: boolean; errors: string[] } {
 }
 
 async function verifyTurnstileToken(token: string): Promise<boolean> {
-  // Development: Allow bypass token for localhost testing
-  if (token === 'bypass-test-token-local') {
+  // Development: Allow bypass only via environment variable (never hardcoded)
+  const bypassToken = Deno.env.get('TURNSTILE_BYPASS_TOKEN');
+  if (bypassToken && token === bypassToken) {
     console.warn('[public-submit-ticket] Using development bypass token');
     return true;
   }
 
   const secretKey = Deno.env.get('TURNSTILE_SECRET_KEY');
   
-  // Check if secret key is configured
   if (!secretKey) {
-    console.error('[public-submit-ticket] TURNSTILE_SECRET_KEY is not set in environment variables');
-    console.error('[public-submit-ticket] Please set it via: supabase secrets set TURNSTILE_SECRET_KEY=your-secret-key');
+    console.error('[public-submit-ticket] TURNSTILE_SECRET_KEY is not set');
     return false;
   }
 
   try {
-    console.log('[public-submit-ticket] Verifying Turnstile token with Cloudflare...');
-    
     const response = await fetch(TURNSTILE_VERIFY_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -150,15 +147,14 @@ async function verifyTurnstileToken(token: string): Promise<boolean> {
     });
 
     if (!response.ok) {
-      console.error('[public-submit-ticket] Turnstile API returned error:', response.status);
+      console.error('[public-submit-ticket] Turnstile API error:', response.status);
       return false;
     }
 
     const data = await response.json();
-    console.log('[public-submit-ticket] Turnstile response:', JSON.stringify(data));
     
     if (!data.success) {
-      console.error('[public-submit-ticket] Turnstile validation failed. Error codes:', data['error-codes']);
+      console.error('[public-submit-ticket] Turnstile validation failed:', data['error-codes']);
     }
     
     return data.success === true;
@@ -187,7 +183,6 @@ Deno.serve(async (req: Request) => {
   try {
     // Get client IP for rate limiting
     const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-    console.log(`[public-submit-ticket] Request from IP: ${clientIp}`);
 
     // Check rate limit
     if (!checkRateLimit(clientIp)) {
@@ -221,32 +216,17 @@ Deno.serve(async (req: Request) => {
     const data = payload as PublicSubmitPayload;
 
     // Verify Turnstile token
-    console.log('[public-submit-ticket] Starting Turnstile verification...');
     const turnstileValid = await verifyTurnstileToken(data.cf_turnstile_token);
     
     if (!turnstileValid) {
-      console.error('[public-submit-ticket] Turnstile validation FAILED');
-      console.error('[public-submit-ticket] Check: 1) TURNSTILE_SECRET_KEY is set, 2) Secret key matches site key from Cloudflare');
-      
-      // Return more informative error for debugging
-      const secretKeyExists = !!Deno.env.get('TURNSTILE_SECRET_KEY');
+      console.error('[public-submit-ticket] Turnstile validation failed');
       return new Response(JSON.stringify({ 
         error: 'Verifikasi keamanan gagal. Coba lagi.',
-        debug: {
-          message: secretKeyExists 
-            ? 'Secret key configured but validation failed. Check if secret key matches site key in Cloudflare.'
-            : 'TURNSTILE_SECRET_KEY not configured in Supabase Edge Function secrets.',
-          hint: secretKeyExists 
-            ? 'Verify your Cloudflare Turnstile Secret Key in Supabase Dashboard' 
-            : 'Set TURNSTILE_SECRET_KEY in Supabase Edge Functions → Manage Secrets'
-        }
       }), {
         status: 403,
         headers: corsHeaders,
       });
     }
-    
-    console.log('[public-submit-ticket] Turnstile verification PASSED ✓');
 
     // Create Supabase client with service role
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
@@ -276,7 +256,7 @@ Deno.serve(async (req: Request) => {
       attachments: [],
     };
 
-    console.log('[public-submit-ticket] Attempting to insert ticket:', { title: ticketData.title, customer_name: ticketData.customer_name });
+    // Insert ticket
 
     const { data: newTicket, error: insertError } = await supabase
       .from('tickets')

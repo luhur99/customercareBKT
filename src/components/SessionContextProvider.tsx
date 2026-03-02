@@ -128,11 +128,13 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   // Redirect logic — separate effect that reacts to session/loading/pathname changes
   // Whitelist public routes that don't need authentication
   const publicRoutes = ['/login', '/public-submit'];
+  const isPublicRoute = publicRoutes.includes(location.pathname) || location.pathname.startsWith('/public-ticket/');
+  
   useEffect(() => {
-    if (!loading && !session && !publicRoutes.includes(location.pathname)) {
+    if (!loading && !session && !isPublicRoute) {
       navigate('/login');
     }
-  }, [loading, session, location.pathname, navigate]);
+  }, [loading, session, location.pathname, navigate, isPublicRoute]);
 
   // Redirect to home after login if on login page
   useEffect(() => {

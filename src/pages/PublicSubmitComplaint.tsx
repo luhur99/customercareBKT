@@ -39,8 +39,8 @@ const COMPLAINT_CATEGORIES = [
 ] as const;
 
 const publicSubmitComplaintSchema = z.object({
-  title: z.string().min(1, { message: 'Judul keluhan diperlukan.' }),
-  description: z.string().optional(),
+  title: z.string().min(1, { message: 'Judul keluhan diperlukan.' }).max(255, { message: 'Judul maksimal 255 karakter.' }),
+  description: z.string().max(5000, { message: 'Deskripsi maksimal 5000 karakter.' }).optional(),
   customer_name: z.string().min(1, { message: 'Nama pelanggan diperlukan.' }),
   customer_whatsapp: z.string().min(1, { message: 'Nomor WhatsApp diperlukan.' }),
   category: z.enum(COMPLAINT_CATEGORIES, { message: 'Kategori keluhan diperlukan.' }),
@@ -84,12 +84,14 @@ const PublicSubmitComplaint = () => {
     },
   });
 
-  // Auto-set bypass token for localhost development
+  // Auto-set bypass token for localhost development (from env var, not hardcoded)
   useEffect(() => {
     if (isLocalhost) {
-      const bypassToken = 'bypass-test-token-local';
-      setTurnstileToken(bypassToken);
-      form.setValue('cf_turnstile_token', bypassToken);
+      const bypassToken = import.meta.env.VITE_TURNSTILE_BYPASS_TOKEN || '';
+      if (bypassToken) {
+        setTurnstileToken(bypassToken);
+        form.setValue('cf_turnstile_token', bypassToken);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLocalhost]);
@@ -110,13 +112,12 @@ const PublicSubmitComplaint = () => {
           category: formData.category,
           no_plat_kendaraan: formData.no_plat_kendaraan,
           no_simcard_gps: formData.no_simcard_gps,
-          cf_turnstile_token: turnstileToken || (isLocalhost ? 'bypass-test-token-local' : ''),
+          cf_turnstile_token: turnstileToken || '',
         },
       });
 
       if (response.error) {
         let errorMessage = response.error.message || 'Gagal mengajukan keluhan.';
-        let debugInfo = null;
         const context = (response.error as { context?: Response }).context;
 
         if (context) {
@@ -132,16 +133,7 @@ const PublicSubmitComplaint = () => {
                 errorMessage = errorBody.message;
               }
               
-              // Extract debug info for logging
-              if (errorBody?.debug) {
-                debugInfo = errorBody.debug;
-                console.error('[PublicSubmit] Backend debug info:', debugInfo);
-                
-                // Append hint to error message for better UX
-                if (debugInfo.hint) {
-                  errorMessage += `\n\n💡 ${debugInfo.hint}`;
-                }
-              }
+              // Debug info from backend (if any) is intentionally not displayed to users
             } else {
               const textBody = await context.text();
               if (textBody) {
@@ -360,21 +352,8 @@ const PublicSubmitComplaint = () => {
                     <div className="p-3 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded text-sm">
                       <p className="text-red-800 dark:text-red-200 font-medium mb-1">⚠️ Error Loading Security Widget</p>
                       <p className="text-red-700 dark:text-red-300 text-xs mb-2">
-                        Gagal memuat verifikasi keamanan. Kemungkinan penyebab:
-                        <br />• Domain tidak terdaftar di Cloudflare Turnstile
-                        <br />• Site key tidak valid atau expired
-                        <br />• Masalah koneksi internet
+                        Gagal memuat verifikasi keamanan. Silakan coba refresh halaman atau periksa koneksi internet Anda.
                       </p>
-                      <details className="text-xs text-red-600 dark:text-red-400 mb-2">
-                        <summary className="cursor-pointer font-medium">🔧 Untuk Admin (Debug Info)</summary>
-                        <div className="mt-1 font-mono text-xs bg-red-100 dark:bg-red-950 p-2 rounded">
-                          <p>Site Key: {import.meta.env.VITE_TURNSTILE_SITE_KEY || 'NOT SET'}</p>
-                          <p>Domain: {window.location.hostname}</p>
-                          <p className="mt-1 text-xs">
-                            Fix: Ke Cloudflare Dashboard → Turnstile → Add domain '{window.location.hostname}'
-                          </p>
-                        </div>
-                      </details>
                       <Button 
                         type="button" 
                         variant="outline" 

@@ -94,6 +94,7 @@ const ManageRoles = () => {
   const [isEditUserDialogOpen, setIsEditUserDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
+  const [pendingRoleChange, setPendingRoleChange] = useState<{ userId: string; userName: string; currentRole: UserRole; newRole: UserRole } | null>(null);
 
   // Redirect if not admin
   useEffect(() => {
@@ -122,7 +123,7 @@ const ManageRoles = () => {
   });
 
   // Mutation for creating a new user
-  const createUserMutation = useMutation<any, Error, CreateUserFormValues>({
+  const createUserMutation = useMutation<{ message: string; user?: Record<string, unknown> }, Error, CreateUserFormValues>({
     mutationFn: async (newUser) => {
       const { data, error } = await supabase.functions.invoke('admin-users', {
         method: 'POST',
@@ -148,7 +149,7 @@ const ManageRoles = () => {
   });
 
   // Mutation for updating user role
-  const updateUserRoleMutation = useMutation<any, Error, { userId: string; newRole: UserRole }>({
+  const updateUserRoleMutation = useMutation<{ message: string }, Error, { userId: string; newRole: UserRole }>({
     mutationFn: async ({ userId, newRole }) => {
       const { data, error } = await supabase.functions.invoke(`admin-users?id=${userId}&role=${newRole}`, {
         method: 'PUT',
@@ -171,7 +172,7 @@ const ManageRoles = () => {
   });
 
   // Mutation for editing user details
-  const editUserMutation = useMutation<any, Error, { userId: string; userData: EditUserFormValues }>({
+  const editUserMutation = useMutation<{ message: string }, Error, { userId: string; userData: EditUserFormValues }>({
     mutationFn: async ({ userId, userData }) => {
       const { data, error } = await supabase.functions.invoke(`admin-users?id=${userId}`, {
         method: 'PUT',
@@ -198,7 +199,7 @@ const ManageRoles = () => {
   });
 
   // Mutation for deleting a user
-  const deleteUserMutation = useMutation<any, Error, string>({
+  const deleteUserMutation = useMutation<{ message: string }, Error, string>({
     mutationFn: async (userId) => {
       const { data, error } = await supabase.functions.invoke('admin-users', {
         method: 'POST',
@@ -254,7 +255,24 @@ const ManageRoles = () => {
   };
 
   const handleRoleChange = (userId: string, newRole: UserRole) => {
-    updateUserRoleMutation.mutate({ userId, newRole });
+    const user = users?.find(u => u.id === userId);
+    if (user && user.role !== newRole) {
+      setPendingRoleChange({
+        userId,
+        userName: user.email,
+        currentRole: user.role,
+        newRole,
+      });
+    }
+  };
+
+  const handleConfirmRoleChange = () => {
+    if (pendingRoleChange) {
+      updateUserRoleMutation.mutate(
+        { userId: pendingRoleChange.userId, newRole: pendingRoleChange.newRole },
+        { onSettled: () => setPendingRoleChange(null) }
+      );
+    }
   };
 
   const handleEditClick = (user: UserProfile) => {
@@ -566,6 +584,30 @@ const ManageRoles = () => {
             >
               {deleteUserMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Role Change Confirmation Dialog */}
+      <AlertDialog open={!!pendingRoleChange} onOpenChange={(open) => { if (!open) setPendingRoleChange(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Role Change</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to change <strong>{pendingRoleChange?.userName}</strong>'s role
+              from <strong>{pendingRoleChange?.currentRole?.replace('_', ' ')}</strong> to <strong>{pendingRoleChange?.newRole?.replace('_', ' ')}</strong>?
+              This will immediately change their access permissions.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={updateUserRoleMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmRoleChange}
+              disabled={updateUserRoleMutation.isPending}
+            >
+              {updateUserRoleMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Confirm
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

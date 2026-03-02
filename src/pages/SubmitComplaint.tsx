@@ -44,7 +44,7 @@ const COMPLAINT_CATEGORIES = [
 
 // Define form schema for submitting a new complaint
 const submitComplaintFormSchema = z.object({
-  title: z.string().min(1, { message: 'Judul keluhan diperlukan.' }),
+  title: z.string().min(1, { message: 'Judul keluhan diperlukan.' }).max(255, { message: 'Judul maksimal 255 karakter.' }),
   no_plat_kendaraan: z
     .string()
     .min(1, { message: 'No plat kendaraan diperlukan.' })
@@ -59,7 +59,7 @@ const submitComplaintFormSchema = z.object({
     .regex(/^08\d{0,13}$/, {
       message: 'No simcard harus angka, diawali 08, maksimal 15 digit.',
     }),
-  description: z.string().optional(),
+  description: z.string().max(5000, { message: 'Deskripsi maksimal 5000 karakter.' }).optional(),
   customer_name: z.string().min(1, { message: 'Nama pelanggan diperlukan.' }),
   customer_whatsapp: z.string().min(1, { message: 'Nomor WhatsApp diperlukan.' }),
   category: z.enum(COMPLAINT_CATEGORIES, { message: 'Kategori keluhan diperlukan.' }),

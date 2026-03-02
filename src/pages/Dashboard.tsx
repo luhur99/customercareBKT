@@ -110,7 +110,13 @@ const Dashboard = () => {
   });
 
   // Store for cached user profiles
-  const [userProfiles, setUserProfiles] = useState<Record<string, any>>({});
+  interface UserProfile {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    email: string | null;
+  }
+  const [userProfiles, setUserProfiles] = useState<Record<string, UserProfile>>({});
 
   // Query for the 15 latest tickets
   const { data: latestTickets, isLoading: isLoadingLatestTickets } = useQuery<LatestTicket[], Error>({
@@ -151,7 +157,7 @@ const Dashboard = () => {
           .in('id', Array.from(userIds));
 
         if (!profileError && profiles) {
-          const profileMap: Record<string, any> = {};
+          const profileMap: Record<string, UserProfile> = {};
           profiles.forEach(profile => {
             profileMap[profile.id] = profile;
           });
@@ -198,46 +204,30 @@ const Dashboard = () => {
     },
   });
 
-  // Query: Calculate SLA Performance Percentage - only select needed columns
+  // Query: SLA Performance Percentage - server-side aggregation
   const { data: slaPerformancePercentage, isLoading: isLoadingSlaPerformance } = useQuery<number, Error>({
     queryKey: ['slaPerformancePercentage'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('tickets')
-        .select('created_at, resolved_at, status');
+      const { data, error } = await supabase.rpc('get_sla_performance');
 
       if (error) throw new Error(error.message);
-
-      const totalTickets = data.length;
-      if (totalTickets === 0) return 0;
-
-      const slaMetTickets = data.filter(ticket => getSlaStatus(ticket.created_at, ticket.resolved_at, ticket.status) === 'green').length;
-      return (slaMetTickets / totalTickets) * 100;
+      return data?.[0]?.sla_percentage ?? 0;
     },
     enabled: !!session && (role === 'admin' || role === 'customer_service'),
   });
 
-  // Query: Calculate Ticket Status Percentages - only select status column
+  // Query: Ticket Status Percentages - server-side aggregation
   const { data: ticketStatusPercentages, isLoading: isLoadingTicketStatusPercentages } = useQuery<{ open: number; inProgress: number; resolved: number }, Error>({
     queryKey: ['ticketStatusPercentages'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('tickets')
-        .select('status');
+      const { data, error } = await supabase.rpc('get_ticket_status_percentages');
 
       if (error) throw new Error(error.message);
-
-      const totalTickets = data.length;
-      if (totalTickets === 0) return { open: 0, inProgress: 0, resolved: 0 };
-
-      const openCount = data.filter(ticket => ticket.status === 'open').length;
-      const inProgressCount = data.filter(ticket => ticket.status === 'in_progress').length;
-      const resolvedCount = data.filter(ticket => ticket.status === 'resolved' || ticket.status === 'closed').length;
-
+      const row = data?.[0];
       return {
-        open: (openCount / totalTickets) * 100,
-        inProgress: (inProgressCount / totalTickets) * 100,
-        resolved: (resolvedCount / totalTickets) * 100,
+        open: row?.open_pct ?? 0,
+        inProgress: row?.in_progress_pct ?? 0,
+        resolved: row?.resolved_pct ?? 0,
       };
     },
     enabled: !!session && (role === 'admin' || role === 'customer_service'),
@@ -412,24 +402,23 @@ const Dashboard = () => {
                         ? [assignedToProfile.first_name, assignedToProfile.last_name].filter(Boolean).join(' ') || assignedToProfile.email 
                         : 'Belum Ditugaskan';
 
-                      const whatsappShareLink = buildTicketWhatsappLink({
+                      const whatsappLink = buildTicketWhatsappLink({
                         phoneNumber: ticket.customer_whatsapp,
+                        audience: 'internal',
                         ticket,
                       });
 
                       return (
                         <TableRow key={ticket.id}>
-                          {/* Ticket number links to WhatsApp share */}
+                          {/* Ticket number links to WhatsApp with ticket details */}
                           <TableCell className="font-medium">
-                            <a
-                              href={whatsappShareLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <button
+                              onClick={() => window.open(whatsappLink, '_blank', 'noopener,noreferrer')}
                               className="text-blue-600 hover:underline dark:text-blue-400"
-                              title="Share ke Tim CS"
+                              title="Share ke Tim CS via WhatsApp"
                             >
                               {ticket.ticket_number}
-                            </a>
+                            </button>
                           </TableCell>
                           <TableCell>{ticket.title}</TableCell>
                           <TableCell>{new Date(ticket.created_at).toLocaleDateString()}</TableCell>
@@ -470,15 +459,13 @@ const Dashboard = () => {
                                 </Button>
                               )}
                               {/* WhatsApp share button */}
-                              <a
-                                href={whatsappShareLink}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                              <button
+                                onClick={() => window.open(whatsappLink, '_blank', 'noopener,noreferrer')}
                                 className="inline-flex items-center justify-center h-8 w-8 p-0 hover:bg-gray-100 rounded-md"
-                                title="Share ke Tim CS"
+                                title="Share ke Tim CS via WhatsApp"
                               >
                                 <Share2 className="h-4 w-4 text-green-600" />
-                              </a>
+                              </button>
                               {/* View detail button */}
                               <Link to={`/tickets/${ticket.id}`}>
                                 <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Lihat detail">

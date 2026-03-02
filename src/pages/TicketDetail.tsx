@@ -477,11 +477,23 @@ const TicketDetail = () => {
   const canEdit = role === 'admin' || role === 'customer_service';
   const canDelete = role === 'admin';
 
-  const whatsappLink = buildTicketWhatsappLink({
-    phoneNumber: ticket.customer_whatsapp,
-    audience: 'customer',
-    ticket,
-  });
+  const handleShareToTeam = () => {
+    const whatsappLink = buildTicketWhatsappLink({
+      phoneNumber: ticket.customer_whatsapp,
+      audience: 'internal',
+      ticket,
+    });
+    window.open(whatsappLink, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleShareToCustomer = () => {
+    const whatsappLink = buildTicketWhatsappLink({
+      phoneNumber: ticket.customer_whatsapp,
+      audience: 'customer',
+      ticket,
+    });
+    window.open(whatsappLink, '_blank', 'noopener,noreferrer');
+  };
 
   const dateTimeFormatOptions: Intl.DateTimeFormatOptions = {
     year: 'numeric',
@@ -658,15 +670,13 @@ const TicketDetail = () => {
                 <p>
                   <strong>WhatsApp:</strong>{' '}
                   {ticket.customer_whatsapp ? (
-                    <a
-                      href={whatsappLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      onClick={handleShareToCustomer}
                       className="text-blue-600 hover:underline dark:text-blue-400"
-                      title="WA Konsumen"
+                      title="Kirim ke Konsumen via WhatsApp"
                     >
                       {ticket.customer_whatsapp}
-                    </a>
+                    </button>
                   ) : (
                     '-'
                   )}

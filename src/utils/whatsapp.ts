@@ -44,7 +44,9 @@ export const buildTicketWhatsappLink = ({
   origin = window.location.origin,
 }: BuildTicketWhatsappLinkParams): string => {
   const formattedWhatsapp = formatWhatsappNumber(phoneNumber);
-  const ticketDetailUrl = `${origin}/tickets/${ticket.id}`;
+  const ticketDetailUrl = audience === 'customer' 
+    ? `${origin}/public-ticket/${ticket.id}`
+    : `${origin}/tickets/${ticket.id}`;
   const ticketDescription = (ticket.description || '-').trim();
   const truncatedDescription =
     ticketDescription.length > 300
@@ -69,7 +71,6 @@ export const buildTicketWhatsappLink = ({
     `No. Tiket: ${ticket.ticket_number}\n` +
     `Judul: ${ticket.title}\n` +
     `Deskripsi: ${truncatedDescription}\n` +
-    `No WA Konsumen: ${ticket.customer_whatsapp || '-'}\n` +
     `Prioritas: ${ticket.priority}\n` +
     `NO Plat Kendaraan: ${ticket.no_plat_kendaraan || '-'}\n` +
     `No Simcard GPS: ${ticket.no_simcard_gps || '-'}\n` +
@@ -77,7 +78,9 @@ export const buildTicketWhatsappLink = ({
 
   const whatsappMessage = encodeURIComponent(audience === 'customer' ? customerMessage : internalMessage);
 
-  if (formattedWhatsapp) {
+  // Untuk customer: kirim ke nomor konsumen
+  // Untuk internal: buka WhatsApp tanpa nomor target (user bisa pilih grup/kontaknya sendiri)
+  if (audience === 'customer' && formattedWhatsapp) {
     return `https://wa.me/${formattedWhatsapp}?text=${whatsappMessage}`;
   }
 
