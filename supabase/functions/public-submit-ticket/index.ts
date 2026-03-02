@@ -26,7 +26,7 @@ interface PublicSubmitPayload {
   title: string;
   description?: string;
   customer_name: string;
-  customer_whatsapp?: string;
+  customer_whatsapp: string;
   category: string;
   no_plat_kendaraan: string;
   no_simcard_gps: string;
@@ -232,7 +232,7 @@ Deno.serve(async (req: Request) => {
       title: data.title.trim(),
       description: (data.description || '').trim(),
       customer_name: data.customer_name.trim(),
-      customer_whatsapp: (data.customer_whatsapp || '').trim() || null,
+      customer_whatsapp: data.customer_whatsapp.trim(),
       category: data.category,
       no_plat_kendaraan: data.no_plat_kendaraan.trim(),
       no_simcard_gps: data.no_simcard_gps.trim(),
