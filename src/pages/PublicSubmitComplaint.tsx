@@ -346,12 +346,22 @@ const PublicSubmitComplaint = () => {
                   ) : turnstileError ? (
                     <div className="p-3 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded text-sm">
                       <p className="text-red-800 dark:text-red-200 font-medium mb-1">⚠️ Error Loading Security Widget</p>
-                      <p className="text-red-700 dark:text-red-300 text-xs">
-                        Gagal memuat verifikasi keamanan. Silakan:
-                        <br />• Refresh halaman ini
-                        <br />• Periksa koneksi internet
-                        <br />• Pastikan domain terdaftar di Cloudflare Turnstile
+                      <p className="text-red-700 dark:text-red-300 text-xs mb-2">
+                        Gagal memuat verifikasi keamanan. Kemungkinan penyebab:
+                        <br />• Domain tidak terdaftar di Cloudflare Turnstile
+                        <br />• Site key tidak valid atau expired
+                        <br />• Masalah koneksi internet
                       </p>
+                      <details className="text-xs text-red-600 dark:text-red-400 mb-2">
+                        <summary className="cursor-pointer font-medium">🔧 Untuk Admin (Debug Info)</summary>
+                        <div className="mt-1 font-mono text-xs bg-red-100 dark:bg-red-950 p-2 rounded">
+                          <p>Site Key: {import.meta.env.VITE_TURNSTILE_SITE_KEY || 'NOT SET'}</p>
+                          <p>Domain: {window.location.hostname}</p>
+                          <p className="mt-1 text-xs">
+                            Fix: Ke Cloudflare Dashboard → Turnstile → Add domain '{window.location.hostname}'
+                          </p>
+                        </div>
+                      </details>
                       <Button 
                         type="button" 
                         variant="outline" 
@@ -372,6 +382,7 @@ const PublicSubmitComplaint = () => {
                           setTurnstileError(false);
                         }}
                         onError={() => {
+                          console.error('[Turnstile] Widget error - possible causes: invalid site key, domain not whitelisted, or network issue');
                           setTurnstileToken('');
                           form.setValue('cf_turnstile_token', '');
                           setTurnstileError(true);
@@ -381,7 +392,14 @@ const PublicSubmitComplaint = () => {
                           form.setValue('cf_turnstile_token', '');
                           showError('Verifikasi keamanan expired. Silakan verifikasi ulang.');
                         }}
+                        onTimeout={() => {
+                          console.error('[Turnstile] Widget timeout');
+                          setTurnstileToken('');
+                          form.setValue('cf_turnstile_token', '');
+                          setTurnstileError(true);
+                        }}
                         theme="auto"
+                        retry="auto"
                       />
                     </div>
                   )}
